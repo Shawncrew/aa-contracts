@@ -7,7 +7,7 @@
   <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <h1 class="h3 mb-0">{{ loc.name }}</h1>
     <div class="d-flex gap-2">
-      <a href="{% url 'aacontracts:locations' %}" class="btn btn-sm btn-outline-secondary">All locations</a>
+      <a href="{% url 'aacontracts:locations' %}" class="btn btn-sm btn-secondary">All locations</a>
       <form method="post" onsubmit="return confirm('Delete this location?');">{% csrf_token %}
         <input type="hidden" name="action" value="delete">
         <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
