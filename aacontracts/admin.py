@@ -13,6 +13,7 @@ class GlobalConfigAdmin(admin.ModelAdmin):
 @admin.register(ShipFit)
 class ShipFitAdmin(admin.ModelAdmin):
     list_display = ["match_name", "hull_name", "enabled", "custom_price", "jita_price", "price_updated"]
+    list_display_links = ["hull_name"]
     list_editable = ["match_name", "enabled", "custom_price"]
     search_fields = ["match_name", "hull_name"]
     list_filter = ["enabled"]
