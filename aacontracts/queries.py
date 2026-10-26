@@ -9,6 +9,18 @@ from .matching import availability_by_location
 from .models import GlobalConfig, Location, SeedTarget, ShipFit
 
 
+REPORT_CACHE_KEY = "aacontracts:report"
+
+
+def invalidate_report():
+    """Drop the cached dashboard report so the next load rebuilds it.
+
+    Called after any admin change (catalog, locations, targets, settings) so
+    edits show immediately instead of waiting out the cache window.
+    """
+    cache.delete(REPORT_CACHE_KEY)
+
+
 def candidate_locations():
     """Stations/structures where alliance contracts exist, for the location picker.
 
@@ -64,7 +76,7 @@ def _doctrine_names():
 def build_report(use_cache=True) -> dict:
     """Per-location, per-doctrine rows with available / target / shortage / price."""
     cfg = GlobalConfig.get()
-    cache_key = "aacontracts:report"
+    cache_key = REPORT_CACHE_KEY
     if use_cache and app_settings.AACONTRACTS_CACHE_SECONDS:
         cached = cache.get(cache_key)
         if cached is not None:

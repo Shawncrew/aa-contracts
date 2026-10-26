@@ -65,6 +65,7 @@ def ship_catalog(request):
         action = request.POST.get("action")
         if action == "sync":
             res = catalog.sync_fits()
+            queries.invalidate_report()
             messages.success(request, f"Synced fits from aa-fittings: {res}.")
             return redirect("aacontracts:catalog")
         if action == "refresh_prices":
@@ -105,6 +106,7 @@ def ship_catalog(request):
             if dirty:
                 fit.save()
                 changed += 1
+        queries.invalidate_report()
         messages.success(request, f"Saved doctrines and {changed} ship type(s).")
         return redirect("aacontracts:catalog")
 
@@ -160,6 +162,7 @@ def settings_view(request):
         form = GlobalConfigForm(request.POST, instance=cfg)
         if form.is_valid():
             form.save()
+            queries.invalidate_report()
             messages.success(request, "Settings saved.")
             return redirect("aacontracts:settings")
     else:
@@ -183,6 +186,7 @@ def locations(request):
             loc = form.save(commit=False)
             loc.system_name = sysmap.get(loc.location_id, loc.system_name)
             loc.save()
+            queries.invalidate_report()
             messages.success(request, f"Added location {loc.name}.")
             return redirect("aacontracts:location_edit", pk=loc.pk)
     else:
@@ -205,6 +209,7 @@ def location_edit(request, pk):
         action = request.POST.get("action")
         if action == "delete":
             loc.delete()
+            queries.invalidate_report()
             messages.success(request, "Location deleted.")
             return redirect("aacontracts:locations")
         if action == "details":
@@ -215,6 +220,7 @@ def location_edit(request, pk):
                 sysmap = {c["location_id"]: c["system"] for c in cands}
                 obj.system_name = sysmap.get(obj.location_id, obj.system_name)
                 obj.save()
+                queries.invalidate_report()
                 messages.success(request, "Location updated.")
             else:
                 messages.error(request, "Could not save location details.")
@@ -239,6 +245,7 @@ def location_edit(request, pk):
             SeedTarget.objects.update_or_create(
                 location=loc, ship_fit_id=fit_id, defaults={"target": target}
             )
+        queries.invalidate_report()
         messages.success(request, "Saved doctrines and targets.")
         return redirect("aacontracts:location_edit", pk=pk)
 
