@@ -1,0 +1,86 @@
+{% extends "allianceauth/base-bs5.html" %}
+{% load humanize %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="d-flex align-items-center justify-content-between flex-wrap mb-3 gap-2">
+    <h1 class="h3 mb-0">{{ page_title }}</h1>
+    <div class="d-flex gap-2">
+      {% if can_manage %}
+        <a href="{% url 'aacontracts:catalog' %}" class="btn btn-sm btn-outline-secondary">Ship types</a>
+        <a href="{% url 'aacontracts:locations' %}" class="btn btn-sm btn-outline-secondary">Locations</a>
+        <a href="{% url 'aacontracts:settings' %}" class="btn btn-sm btn-outline-secondary">Settings</a>
+      {% endif %}
+      <a href="{% url 'aacontracts:data' %}" class="btn btn-sm btn-outline-secondary">JSON</a>
+    </div>
+  </div>
+
+  {% if not report.locations %}
+    <div class="alert alert-info">
+      No locations configured yet.
+      {% if can_manage %}Add one under <a href="{% url 'aacontracts:locations' %}">Locations</a> and enable some doctrines.{% endif %}
+    </div>
+  {% endif %}
+
+  <div class="row g-4">
+    {% for loc in report.locations %}
+    <div class="col-12 col-xxl-6">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>
+            <strong>{{ loc.name }}</strong>
+            {% if loc.system_name %}<span class="text-muted small">· {{ loc.system_name }}</span>{% endif %}
+          </span>
+          {% if loc.short_count %}
+            <span class="badge bg-danger">{{ loc.short_count }} short</span>
+          {% else %}
+            <span class="badge bg-success">stocked</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          {% for doc in loc.doctrines %}
+          <div class="mb-3">
+            <div class="fw-semibold border-bottom pb-1 mb-1 d-flex justify-content-between">
+              <span>{{ doc.doctrine_name }}</span>
+              {% if doc.short_count %}<span class="text-danger small">{{ doc.short_count }} short</span>{% endif %}
+            </div>
+            <table class="table table-sm align-middle mb-0" style="font-variant-numeric: tabular-nums;">
+              <thead>
+                <tr class="text-muted small">
+                  <th>Ship</th>
+                  <th class="text-end">Avail</th>
+                  <th class="text-end">Target</th>
+                  <th class="text-end">Short</th>
+                  <th class="text-end">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in doc.rows %}
+                <tr {% if r.shortage %}class="table-danger"{% endif %}>
+                  <td>{{ r.name }}{% if r.hull and r.hull != r.name %}<span class="text-muted small"> · {{ r.hull }}</span>{% endif %}</td>
+                  <td class="text-end">{{ r.available }}</td>
+                  <td class="text-end">{{ r.target }}</td>
+                  <td class="text-end">{% if r.shortage %}<strong>{{ r.shortage }}</strong>{% else %}—{% endif %}</td>
+                  <td class="text-end">{% if r.price %}{{ r.price|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% empty %}
+            <p class="text-muted small mb-0">No enabled doctrines with fits at this location.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="text-muted small mt-3">
+    Prices are Jita 4-4 (Fuzzwork) + {{ report.markup }}% markup, or an admin override. Live contract
+    state from corptools. Generated {{ report.generated }}.
+  </p>
+</div>
+{% endblock %}

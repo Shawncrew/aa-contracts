@@ -1,8 +1,9 @@
 """Settings for aa-contracts, overridable from Alliance Auth's local.py.
 
-Everything the plugin reads comes from corptools' already-synced contract
-tables, so there is no ESI config here — only what counts as "the alliance",
-how to decide a contract is live, and how to name hulls from titles.
+Live contract state is read from corptools; fits/doctrines from aa-fittings;
+prices from Fuzzwork's Jita 4-4 aggregates. Runtime, editable configuration
+(markup, Discord channel, ping group) lives in the GlobalConfig DB row, not
+here — these are deploy-time defaults and constants.
 """
 from django.conf import settings
 
@@ -17,58 +18,43 @@ def _int_list(value):
     return out
 
 
-# Entities a contract must be *assigned to* to count as "on alliance contract".
-# Normally your alliance id(s); corp ids also work (e.g. a holding corp).
-# Default is Northern Coalition. — override in local.py:
-#   AACONTRACTS_ALLIANCE_IDS = [1727758877]
+# Assignee id(s) that count as "the alliance". Default Northern Coalition.
 AACONTRACTS_ALLIANCE_IDS = _int_list(
     getattr(settings, "AACONTRACTS_ALLIANCE_IDS", [1727758877])
 )
 
-# Only count contracts that are still live. corptools marks a contract
-# "outstanding" until it next re-syncs that contract's status, so expired or
-# already-taken contracts linger for months. These two filters drop them:
-#   - require date_expired in the future
-#   - require the contract to be unaccepted (acceptor_id == 0)
+# Live-contract filters (corptools leaves expired/taken contracts "outstanding").
 AACONTRACTS_REQUIRE_NOT_EXPIRED = bool(
     getattr(settings, "AACONTRACTS_REQUIRE_NOT_EXPIRED", True)
 )
 AACONTRACTS_EXCLUDE_ACCEPTED = bool(
     getattr(settings, "AACONTRACTS_EXCLUDE_ACCEPTED", True)
 )
-
-# Restrict to a contract type, e.g. "item_exchange". Blank = any type.
 AACONTRACTS_CONTRACT_TYPE = (
     getattr(settings, "AACONTRACTS_CONTRACT_TYPE", "") or ""
 ).strip()
 
-# EVE inventory category id for ships. Never needs changing.
-AACONTRACTS_SHIP_CATEGORY_ID = int(
-    getattr(settings, "AACONTRACTS_SHIP_CATEGORY_ID", 6)
+AACONTRACTS_SHIP_CATEGORY_ID = int(getattr(settings, "AACONTRACTS_SHIP_CATEGORY_ID", 6))
+
+# Cache the aggregated dashboard for this many seconds (0 disables).
+AACONTRACTS_CACHE_SECONDS = int(getattr(settings, "AACONTRACTS_CACHE_SECONDS", 120))
+
+# --- Fuzzwork Jita 4-4 pricing -------------------------------------------
+# Jita IV - Moon 4 - Caldari Navy Assembly Plant.
+AACONTRACTS_JITA_STATION_ID = int(getattr(settings, "AACONTRACTS_JITA_STATION_ID", 60003760))
+AACONTRACTS_FUZZWORK_URL = (
+    getattr(settings, "AACONTRACTS_FUZZWORK_URL", "https://market.fuzzwork.co.uk/aggregates/")
+).strip()
+# How many type_ids per Fuzzwork request (keeps URLs sane).
+AACONTRACTS_FUZZWORK_BATCH = int(getattr(settings, "AACONTRACTS_FUZZWORK_BATCH", 300))
+AACONTRACTS_HTTP_TIMEOUT = int(getattr(settings, "AACONTRACTS_HTTP_TIMEOUT", 30))
+
+# Default Discord status channel (NC.) used when GlobalConfig has none set yet.
+AACONTRACTS_DEFAULT_DISCORD_CHANNEL_ID = getattr(
+    settings, "AACONTRACTS_DEFAULT_DISCORD_CHANNEL_ID", None
 )
 
-# Cache the aggregated dashboard for this many seconds (0 disables). The source
-# data only moves when corptools re-syncs, so a short cache spares the DB.
-AACONTRACTS_CACHE_SECONDS = int(getattr(settings, "AACONTRACTS_CACHE_SECONDS", 300))
-
-# Abbreviation / nickname -> canonical hull name, used only when a contract has
-# no synced item rows and its title doesn't literally contain a ship name.
-# Keys are matched case-insensitively against the title's words (a single word)
-# or as a phrase (multiple words). Your overrides are merged over these.
-AACONTRACTS_DEFAULT_SHIP_ALIASES = {
-    "hfi": "Hurricane Fleet Issue",
-    "napoc": "Apocalypse Navy Issue",
-    "cfi": "Cyclone Fleet Issue",
-    "retri": "Retribution",
-    "munin": "Muninn",
-    "maelstron": "Maelstrom",      # common misspelling seen in titles
-    "potifex": "Pontifex",         # common misspelling seen in titles
-    "claymoire": "Claymore",       # common misspelling seen in titles
-}
-AACONTRACTS_SHIP_ALIASES = {
-    **AACONTRACTS_DEFAULT_SHIP_ALIASES,
-    **{
-        str(k).strip().lower(): str(v).strip()
-        for k, v in getattr(settings, "AACONTRACTS_SHIP_ALIASES", {}).items()
-    },
-}
+# aadiscordbot cog(s) this plugin registers.
+AACONTRACTS_DISCORD_BOT_COGS = getattr(
+    settings, "AACONTRACTS_DISCORD_BOT_COGS", ["aacontracts.cogs.status"]
+)

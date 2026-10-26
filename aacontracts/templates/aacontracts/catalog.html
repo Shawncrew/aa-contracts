@@ -1,0 +1,73 @@
+{% extends "allianceauth/base-bs5.html" %}
+{% load humanize %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="d-flex align-items-center justify-content-between flex-wrap mb-3 gap-2">
+    <h1 class="h3 mb-0">{{ page_title }}</h1>
+    <div class="d-flex gap-2">
+      <a href="{% url 'aacontracts:index' %}" class="btn btn-sm btn-outline-secondary">Dashboard</a>
+      <form method="post" class="d-inline">{% csrf_token %}
+        <input type="hidden" name="action" value="sync">
+        <button class="btn btn-sm btn-outline-primary" type="submit">Sync fits from aa-fittings</button>
+      </form>
+      <form method="post" class="d-inline">{% csrf_token %}
+        <input type="hidden" name="action" value="refresh_prices">
+        <button class="btn btn-sm btn-outline-primary" type="submit">Refresh Jita prices</button>
+      </form>
+    </div>
+  </div>
+
+  <p class="text-muted small">
+    Each fit from aa-fittings is one “ship type”. Set its <strong>match name</strong> to the contract title you seed
+    it under (matched case-insensitively; the longest match wins, so you can distinguish the same hull across
+    doctrines). Prices are Jita 4-4 + {{ config.price_markup_percent }}% markup unless you set a custom price.
+  </p>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="d-flex justify-content-end mb-2">
+      <button class="btn btn-primary btn-sm" type="submit">Save all</button>
+    </div>
+    {% for g in groups %}
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">{{ g.name }}</div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="text-muted small">
+            <tr>
+              <th style="width:16rem;">Fit (aa-fittings)</th>
+              <th>Match name (contract title)</th>
+              <th style="width:6rem;" class="text-center">Enabled</th>
+              <th style="width:10rem;" class="text-end">Jita+markup</th>
+              <th style="width:12rem;" class="text-end">Custom price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in g.rows %}
+            {% with sf=row.fit %}
+            <tr>
+              <td>
+                <div>{{ sf.hull_name|default:sf.fitting.ship_type_type_id }}</div>
+                <div class="text-muted small">{{ sf.fitting.name }}</div>
+              </td>
+              <td><input type="text" class="form-control form-control-sm" name="match_name_{{ sf.id }}" value="{{ sf.match_name }}"></td>
+              <td class="text-center"><input type="checkbox" class="form-check-input" name="enabled_{{ sf.id }}" {% if sf.enabled %}checked{% endif %}></td>
+              <td class="text-end font-monospace small">{% if row.price %}{{ row.price|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+              <td><input type="text" class="form-control form-control-sm text-end" name="custom_price_{{ sf.id }}" value="{{ sf.custom_price|default_if_none:'' }}" placeholder="auto"></td>
+            </tr>
+            {% endwith %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+    <div class="d-flex justify-content-end">
+      <button class="btn btn-primary btn-sm" type="submit">Save all</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

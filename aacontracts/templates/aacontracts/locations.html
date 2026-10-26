@@ -1,0 +1,56 @@
+{% extends "allianceauth/base-bs5.html" %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0">{{ page_title }}</h1>
+    <a href="{% url 'aacontracts:index' %}" class="btn btn-sm btn-outline-secondary">Dashboard</a>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-12 col-lg-7">
+      <div class="card">
+        <div class="card-header">Locations</div>
+        <table class="table table-sm align-middle mb-0">
+          <thead class="text-muted small">
+            <tr><th>Name</th><th>System</th><th>Location id</th><th class="text-center">Enabled</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for loc in locations %}
+            <tr>
+              <td>{{ loc.name }}</td>
+              <td class="text-muted">{{ loc.system_name }}</td>
+              <td class="font-monospace small">{{ loc.location_id }}</td>
+              <td class="text-center">{% if loc.enabled %}✅{% else %}—{% endif %}</td>
+              <td class="text-end"><a href="{% url 'aacontracts:location_edit' loc.pk %}" class="btn btn-sm btn-outline-primary">Edit</a></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="text-center text-muted py-3">No locations yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-5">
+      <form method="post" class="card">
+        {% csrf_token %}
+        <div class="card-header">Add location</div>
+        <div class="card-body">
+          <div class="mb-2"><label class="form-label">Name</label>{{ form.name }}</div>
+          <div class="mb-2">
+            <label class="form-label">Location id (station/structure)</label>{{ form.location_id }}
+            <div class="form-text">The EVE station or citadel id contracts are placed at.</div>
+          </div>
+          <div class="mb-2"><label class="form-label">System</label>{{ form.system_name }}</div>
+          <div class="mb-2"><label class="form-label">Order</label>{{ form.order }}</div>
+          <div class="form-check"><input type="checkbox" name="enabled" class="form-check-input" checked><label class="form-check-label">Enabled</label></div>
+        </div>
+        <div class="card-footer text-end"><button class="btn btn-primary btn-sm" type="submit">Add</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

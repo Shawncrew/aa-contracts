@@ -1,39 +1,36 @@
 # aa-contracts
 
-An [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) plugin that shows,
-on one page, **which ships are currently up on your alliance's contracts and how many
-of each** — grouped by hull and by hull class.
+An [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) plugin for managing and
+monitoring **doctrine ship seeding on alliance contracts**: which fits should be stocked
+where, how many are up versus the target, what each should cost, and a live Discord status
+report with shortage pings and fit-mismatch alerts.
 
-It does **not** talk to ESI itself. It reads the contract data that
-[corptools](https://github.com/pvyParts/allianceauth-corptools) already syncs, so the
-only requirement is that corptools is installed and pulling corporate contracts for
-corps that can see the alliance contracts.
+It reads live contract state from [corptools](https://github.com/pvyParts/allianceauth-corptools)
+and fit/doctrine definitions from [aa-fittings](https://gitlab.com/colcrunch/fittings); it does
+not talk to ESI itself. Prices come from [Fuzzwork](https://www.fuzzwork.co.uk/) (Jita 4-4).
 
-## What it shows
+## Features
 
-- Headline tiles: identified hulls, distinct ship types, most-stocked hull, live contract count.
-- A sortable, filterable table of every hull with its class and contract count.
-- A breakdown by hull class.
-- A JSON feed of the same numbers at `/contracts/data.json`.
+1. **Ship-type catalog from your fittings.** Every aa-fittings *fit* becomes a trackable
+   "ship type". Because the same hull appears in several doctrines with different fits, each
+   fit has an editable **match name** — the contract title it's seeded under — so contracts
+   map to the right fit by their description. Manage it all on the *Ship types* page.
+2. **Pricing.** Jita 4-4 fit value (hull + every fitted module) from Fuzzwork, plus a global
+   markup %, with an optional per-fit custom price override. Shown in the catalog and dashboard.
+3. **Locations.** Add the stations/citadels you seed at. Enable or disable each doctrine per
+   location; only enabled doctrines appear on the dashboard and in reports. Set a per-fit
+   **target** at each location — shortage = target − contracts up there.
+4. **Discord status.** One message per location in a status channel, edited every minute, with
+   🔴/🟢 per fit. When a location goes short it pings a configurable auth group (via its linked
+   Discord role).
+5. **Fit verification.** Each contract's items are reconciled against its aa-fittings fit. A
+   single "Alerts" message in the same channel lists mismatches and pings the contract issuer.
+6. **Price history.** Every price refresh records a snapshot per fit (`/contracts/fit/<id>/history.json`).
 
-### How a contract becomes a ship
+## Requirements
 
-1. **Synced item rows** (ground truth). When corptools has pulled a contract's items,
-   the one included ship item is the hull.
-2. **The contract title.** corptools fetches items lazily, so most live contracts have
-   none yet. Doctrine contracts hold one fitted hull and name it in the title, so the
-   hull is read from the title — a configured alias (e.g. `HFI`), otherwise a ship name
-   that appears literally. Ship names and classes come from
-   [django-eveuniverse](https://gitlab.com/ErikKalkoken/django-eveuniverse)
-   (inventory category 6).
-
-### Why "live" ≠ corptools "outstanding"
-
-corptools only updates a contract's `status` when it next re-syncs that contract, so
-expired or already-taken contracts linger as `outstanding` for months. By default this
-plugin counts a contract only if it is **not expired** (`date_expired` in the future)
-and **not accepted** (`acceptor_id == 0`). The method card on the page shows both the
-live count and the raw "outstanding" count for context.
+corptools (syncing corporate contracts), aa-fittings (with your doctrines/fits), django-eveuniverse,
+and allianceauth-discordbot (for the status cog).
 
 ## Install
 
@@ -41,61 +38,60 @@ live count and the raw "outstanding" count for context.
 pip install git+https://github.com/Shawncrew/aa-contracts.git
 ```
 
-Add the app and configure it in your Alliance Auth `local.py`:
+`local.py`:
 
 ```python
 INSTALLED_APPS += ["aacontracts"]
-
-# Required: the alliance (or corp) id(s) whose contracts to show.
-AACONTRACTS_ALLIANCE_IDS = [1727758877]
+AACONTRACTS_ALLIANCE_IDS = [1727758877]      # assignee id(s) that count as "the alliance"
 ```
-
-Then migrate and restart:
 
 ```bash
 python manage.py migrate aacontracts
 python manage.py collectstatic --noinput
-# restart gunicorn
+# restart web + workers + discordbot
 ```
 
-Grant the **Can view the alliance contracts dashboard**
-(`aacontracts.view_contracts`) permission to a group or user. A **Contracts** item
-then appears in the sidebar.
+Then:
 
-## Settings
+```bash
+python manage.py contracts_sync_fits        # build the catalog from aa-fittings
+python manage.py contracts_refresh_prices   # pull Jita 4-4 prices
+```
 
-All optional except `AACONTRACTS_ALLIANCE_IDS`.
+Grant **`aacontracts.view_contracts`** (dashboard) / **`aacontracts.manage_contracts`** (admin
+pages) to groups. A **Contracts** item appears in the sidebar.
+
+### Configure
+
+- *Ship types* page: set each fit's match name, enable the ones you seed, optional custom price.
+- *Locations* page: add stations, tick doctrines, set targets per fit.
+- *Settings* page: markup %, price basis, and Discord (enable, channel id, ping group, interval).
+
+## Settings (local.py)
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `AACONTRACTS_ALLIANCE_IDS` | `[1727758877]` | Assignee id(s) that count as "the alliance". Corp ids work too. |
-| `AACONTRACTS_REQUIRE_NOT_EXPIRED` | `True` | Only count contracts whose `date_expired` is in the future. |
-| `AACONTRACTS_EXCLUDE_ACCEPTED` | `True` | Only count unaccepted contracts (`acceptor_id == 0`). |
-| `AACONTRACTS_CONTRACT_TYPE` | `""` | Restrict to a contract type, e.g. `"item_exchange"`. Blank = any. |
-| `AACONTRACTS_CACHE_SECONDS` | `300` | Cache the aggregated page for N seconds. `0` disables. |
-| `AACONTRACTS_SHIP_ALIASES` | `{}` | Title abbreviation/nickname → hull name, merged over the built-ins (`HFI`, `NAPOC`, `CFI`, …). |
+| `AACONTRACTS_ALLIANCE_IDS` | `[1727758877]` | Assignee id(s) that count as the alliance. |
+| `AACONTRACTS_REQUIRE_NOT_EXPIRED` | `True` | Count only unexpired contracts. |
+| `AACONTRACTS_EXCLUDE_ACCEPTED` | `True` | Count only unaccepted contracts. |
+| `AACONTRACTS_JITA_STATION_ID` | `60003760` | Fuzzwork station for pricing (Jita 4-4). |
+| `AACONTRACTS_CACHE_SECONDS` | `120` | Dashboard report cache. |
 
-Example alias override:
+Everything else (markup, Discord channel/group, interval, price basis) is edited in-app on the
+Settings page and stored in the database.
 
-```python
-AACONTRACTS_SHIP_ALIASES = {
-    "nid": "Nightmare",
-    "sabre fleet": "Sabre",
-}
-```
+### Scheduling
 
-## Verify from the shell
-
-```bash
-python manage.py contracts_report --no-cache
-```
+The Discord cog enqueues the heavy work (price refresh, report build, fit verification) each
+cycle, so with the cog enabled no cron is required. To also run it without Discord, add a beat
+schedule for `aacontracts.tasks.update_status`, or run the management commands from cron.
 
 ## Permissions
 
 | Codename | Grants |
 |---|---|
-| `aacontracts.view_contracts` | See the dashboard and the JSON feed. |
-| `aacontracts.manage_contracts` | Reserved for future admin/detail views. |
+| `aacontracts.view_contracts` | Dashboard, JSON, price history. |
+| `aacontracts.manage_contracts` | Ship types, locations, settings pages. |
 
 ## License
 

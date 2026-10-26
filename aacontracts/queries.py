@@ -1,135 +1,98 @@
-"""Read live alliance contracts from corptools and aggregate them by hull.
-
-corptools stores one copy of a contract per corp that can see it, so every
-count here dedupes by ``contract_id``.
-"""
+"""Build the per-location seeding report (dashboard + Discord share this)."""
 from __future__ import annotations
 
 from django.core.cache import cache
-from django.db.models import Min
 from django.utils import timezone
 
-from . import app_settings, classify
+from . import app_settings, pricing
+from .matching import availability_by_location
+from .models import GlobalConfig, Location, SeedTarget, ShipFit
 
 
-def _base_queryset():
-    from corptools.models import CorporateContract
-
-    qs = CorporateContract.objects.filter(
-        assignee_id__in=app_settings.AACONTRACTS_ALLIANCE_IDS,
-        status="outstanding",
+def _fits_by_doctrine():
+    """``{doctrine_id: [ShipFit, ...]}`` for enabled fits."""
+    out: dict[int, list] = {}
+    qs = ShipFit.objects.filter(enabled=True).select_related("fitting").prefetch_related(
+        "fitting__doctrines"
     )
-    if app_settings.AACONTRACTS_CONTRACT_TYPE:
-        qs = qs.filter(contract_type=app_settings.AACONTRACTS_CONTRACT_TYPE)
-    return qs
+    for sf in qs:
+        for d in sf.fitting.doctrines.all():
+            out.setdefault(d.id, []).append(sf)
+    return out
 
 
-def _live_queryset():
-    qs = _base_queryset()
-    if app_settings.AACONTRACTS_REQUIRE_NOT_EXPIRED:
-        qs = qs.filter(date_expired__gt=timezone.now())
-    if app_settings.AACONTRACTS_EXCLUDE_ACCEPTED:
-        qs = qs.filter(acceptor_id=0)
-    return qs
+def _doctrine_names():
+    from fittings.models import Doctrine
+
+    return dict(Doctrine.objects.values_list("id", "name"))
 
 
-def _item_hulls(contract_ids, type_index):
-    """``contract_id -> (hull_name, class)`` from synced ship item rows."""
-    from corptools.models import CorporateContractItem
-
-    hulls: dict[int, tuple[str, str]] = {}
-    rows = (
-        CorporateContractItem.objects.filter(
-            contract__contract_id__in=contract_ids,
-            is_included=True,
-            type_name_id__in=list(type_index.keys()),
-        )
-        .values_list("contract__contract_id", "type_name_id")
-    )
-    for cid, type_id in rows:
-        if cid not in hulls and type_id in type_index:
-            hulls[cid] = type_index[type_id]
-    return hulls
-
-
-def build_summary():
-    """Aggregate the current live alliance contracts by hull.
-
-    Returns a dict with ``ships`` (rows), ``by_class`` (rows) and ``totals``.
-    """
-    cache_key = "aacontracts:summary"
-    ttl = app_settings.AACONTRACTS_CACHE_SECONDS
-    if ttl:
+def build_report(use_cache=True) -> dict:
+    """Per-location, per-doctrine rows with available / target / shortage / price."""
+    cfg = GlobalConfig.get()
+    cache_key = "aacontracts:report"
+    if use_cache and app_settings.AACONTRACTS_CACHE_SECONDS:
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
 
-    catalog = classify.ship_catalog()
-    type_index = classify.ship_type_index()
-    aliases = app_settings.AACONTRACTS_SHIP_ALIASES
+    availability = availability_by_location()        # {eve_loc_id: {fit_id: count}}
+    fits_by_doc = _fits_by_doctrine()
+    doc_names = _doctrine_names()
+    markup = cfg.price_markup_percent
 
-    # One representative row per real contract (titles are identical across
-    # the per-corp copies, so Min() just picks one).
-    live = list(
-        _live_queryset()
-        .values("contract_id")
-        .annotate(title=Min("title"))
-    )
-    contract_ids = [r["contract_id"] for r in live]
-    item_hulls = _item_hulls(contract_ids, type_index)
+    # Targets: {(location_id, fit_id): target}
+    targets = {
+        (t.location_id, t.ship_fit_id): t.target
+        for t in SeedTarget.objects.all()
+    }
 
-    ships: dict[str, dict] = {}
-    classified = 0
-    unidentified = 0
-    for row in live:
-        cid = row["contract_id"]
-        hull = item_hulls.get(cid)
-        if hull is None:
-            hull = classify.classify_title(row["title"], catalog, aliases)
-        if hull is None:
-            unidentified += 1
-            ship_name, ship_class = classify.UNIDENTIFIED, classify.UNIDENTIFIED
-        else:
-            ship_name, ship_class = hull
-            classified += 1
-        bucket = ships.setdefault(
-            ship_name, {"ship": ship_name, "ship_class": ship_class, "contracts": 0}
-        )
-        bucket["contracts"] += 1
-
-    ship_rows = sorted(
-        ships.values(), key=lambda r: (-r["contracts"], r["ship"])
-    )
-
-    by_class: dict[str, dict] = {}
-    for r in ship_rows:
-        c = by_class.setdefault(
-            r["ship_class"],
-            {"ship_class": r["ship_class"], "contracts": 0, "types": 0},
-        )
-        c["contracts"] += r["contracts"]
-        c["types"] += 1
-    class_rows = sorted(
-        by_class.values(), key=lambda r: (-r["contracts"], r["ship_class"])
-    )
-
-    stale_outstanding = (
-        _base_queryset().values("contract_id").distinct().count()
-    )
+    locations = []
+    for loc in Location.objects.filter(enabled=True).prefetch_related("doctrines"):
+        avail = availability.get(loc.location_id, {})
+        loc_doctrines = []
+        loc_short = 0
+        for ld in loc.doctrines.filter(enabled=True):
+            rows = []
+            doc_short = 0
+            for sf in sorted(fits_by_doc.get(ld.doctrine_id, []), key=lambda f: (f.hull_name, f.match_name)):
+                available = avail.get(sf.id, 0)
+                target = targets.get((loc.id, sf.id), 0)
+                shortage = max(0, target - available)
+                if shortage > 0:
+                    doc_short += 1
+                price = pricing.final_price(sf, markup)
+                rows.append({
+                    "fit_id": sf.id,
+                    "hull": sf.hull_name,
+                    "name": sf.match_name or sf.hull_name,
+                    "available": available,
+                    "target": target,
+                    "shortage": shortage,
+                    "price": price,
+                })
+            if rows:
+                loc_doctrines.append({
+                    "doctrine_id": ld.doctrine_id,
+                    "doctrine_name": doc_names.get(ld.doctrine_id, f"Doctrine {ld.doctrine_id}"),
+                    "rows": rows,
+                    "short_count": doc_short,
+                })
+                loc_short += doc_short
+        locations.append({
+            "id": loc.id,
+            "location": loc,
+            "name": loc.name,
+            "system_name": loc.system_name,
+            "doctrines": loc_doctrines,
+            "short_count": loc_short,
+        })
 
     result = {
-        "ships": ship_rows,
-        "by_class": class_rows,
-        "totals": {
-            "live_total": len(live),
-            "classified": classified,
-            "unidentified": unidentified,
-            "ship_types": len([r for r in ship_rows if r["ship"] != classify.UNIDENTIFIED]),
-            "with_item_data": len(item_hulls),
-            "stale_outstanding": stale_outstanding,
-            "captured": timezone.now().isoformat(),
-        },
+        "locations": locations,
+        "markup": float(markup),
+        "generated": timezone.now().isoformat(),
     }
-    if ttl:
-        cache.set(cache_key, result, ttl)
+    if use_cache and app_settings.AACONTRACTS_CACHE_SECONDS:
+        cache.set(cache_key, result, app_settings.AACONTRACTS_CACHE_SECONDS)
     return result

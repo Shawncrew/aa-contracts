@@ -1,7 +1,7 @@
 from allianceauth import hooks
 from allianceauth.services.hooks import MenuItemHook, UrlHook
 
-from . import urls
+from . import app_settings, urls
 
 
 class ContractsMenuItem(MenuItemHook):
@@ -27,3 +27,8 @@ def register_menu():
 @hooks.register("url_hook")
 def register_urls():
     return UrlHook(urls, "aacontracts", r"^contracts/")
+
+
+@hooks.register("discord_cogs_hook")
+def register_cogs():
+    return app_settings.AACONTRACTS_DISCORD_BOT_COGS

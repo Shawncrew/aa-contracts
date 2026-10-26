@@ -1,0 +1,63 @@
+{% extends "allianceauth/base-bs5.html" %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h1 class="h3 mb-0">{{ loc.name }}</h1>
+    <div class="d-flex gap-2">
+      <a href="{% url 'aacontracts:locations' %}" class="btn btn-sm btn-outline-secondary">All locations</a>
+      <form method="post" onsubmit="return confirm('Delete this location?');">{% csrf_token %}
+        <input type="hidden" name="action" value="delete">
+        <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+
+  <form method="post" class="card mb-4">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="details">
+    <div class="card-header">Details</div>
+    <div class="card-body row g-2">
+      <div class="col-md-4"><label class="form-label">Name</label>{{ form.name }}</div>
+      <div class="col-md-3"><label class="form-label">Location id</label>{{ form.location_id }}</div>
+      <div class="col-md-3"><label class="form-label">System</label>{{ form.system_name }}</div>
+      <div class="col-md-2"><label class="form-label">Order</label>{{ form.order }}</div>
+      <div class="col-12 form-check ms-1 mt-2">{{ form.enabled }}<label class="form-check-label">Enabled</label></div>
+    </div>
+    <div class="card-footer text-end"><button class="btn btn-sm btn-primary">Save details</button></div>
+  </form>
+
+  <form method="post">
+    {% csrf_token %}
+    <p class="text-muted small">Tick a doctrine to seed it here, and set the target count for each fit. A fit shows
+      on the dashboard and Discord when its doctrine is ticked. Shortage = target − contracts up.</p>
+    <div class="d-flex justify-content-end mb-2"><button class="btn btn-sm btn-primary">Save doctrines &amp; targets</button></div>
+    {% for g in groups %}
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center gap-2">
+        <input class="form-check-input mt-0" type="checkbox" name="doctrine" value="{{ g.id }}" {% if g.enabled %}checked{% endif %}>
+        <span class="fw-semibold">{{ g.name }}</span>
+      </div>
+      <table class="table table-sm align-middle mb-0">
+        <thead class="text-muted small"><tr><th>Fit</th><th>Match name</th><th style="width:8rem;" class="text-end">Target</th></tr></thead>
+        <tbody>
+          {% for row in g.rows %}
+          <tr>
+            <td>{{ row.fit.hull_name }}<span class="text-muted small"> · {{ row.fit.fitting.name }}</span></td>
+            <td class="small">{{ row.fit.match_name }}</td>
+            <td class="text-end"><input type="number" min="0" class="form-control form-control-sm text-end" name="target_{{ row.fit.id }}" value="{{ row.target }}"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% empty %}
+    <div class="alert alert-info">No enabled ship types yet — add match names under
+      <a href="{% url 'aacontracts:catalog' %}">Ship types</a> first.</div>
+    {% endfor %}
+    <div class="d-flex justify-content-end"><button class="btn btn-sm btn-primary">Save doctrines &amp; targets</button></div>
+  </form>
+</div>
+{% endblock %}

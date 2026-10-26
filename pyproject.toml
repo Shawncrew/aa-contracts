@@ -13,6 +13,8 @@ dependencies = [
     "allianceauth>=4.6.1,<6",
     "allianceauth-corptools",
     "django-eveuniverse",
+    "fittings",
+    "allianceauth-discordbot",
 ]
 keywords = ["allianceauth", "eveonline", "contracts", "corptools"]
 classifiers = [
