@@ -5,17 +5,8 @@
 
 {% block content %}
 <div class="container-fluid p-0">
-  <div class="d-flex align-items-center justify-content-between flex-wrap mb-3 gap-2">
-    <h1 class="h3 mb-0">{{ page_title }}</h1>
-    <div class="d-flex gap-2">
-      {% if can_manage %}
-        <a href="{% url 'aacontracts:catalog' %}" class="btn btn-sm btn-secondary">Ship types</a>
-        <a href="{% url 'aacontracts:locations' %}" class="btn btn-sm btn-secondary">Locations</a>
-        <a href="{% url 'aacontracts:settings' %}" class="btn btn-sm btn-secondary">Settings</a>
-      {% endif %}
-      <a href="{% url 'aacontracts:data' %}" class="btn btn-sm btn-secondary">JSON</a>
-    </div>
-  </div>
+  {% include "aacontracts/_nav.html" with active="dashboard" %}
+  <h1 class="h3 mb-3">{{ page_title }}</h1>
 
   {% if not report.locations %}
     <div class="alert alert-info">

@@ -37,12 +37,13 @@ class GlobalConfig(models.Model):
         help_text="Percent added to every computed Jita 4-4 fit price (e.g. 5 = +5%).",
     )
     price_basis = models.CharField(
-        max_length=16, default="sell_percentile",
+        max_length=20, default="sell_percentile",
         choices=[
-            ("sell_percentile", "Jita sell (percentile)"),
-            ("sell_min", "Jita sell (min)"),
-            ("buy_percentile", "Jita buy (percentile)"),
-            ("buy_max", "Jita buy (max)"),
+            ("sell_percentile", "Jita sell — percentile (robust)"),
+            ("sell_min", "Jita sell — lowest order"),
+            ("buy_percentile", "Jita buy — percentile (robust)"),
+            ("buy_max", "Jita buy — highest order"),
+            ("sell_buy_split", "Jita split — avg of lowest sell & highest buy"),
         ],
         help_text="Which Fuzzwork Jita 4-4 figure to price items at.",
     )

@@ -20,14 +20,23 @@ def candidate_locations():
     rows = (
         CorporateContract.objects.filter(assignee_id__in=app_settings.AACONTRACTS_ALLIANCE_IDS)
         .exclude(start_location_id=None)
-        .values_list("start_location_id", "start_location_name__location_name")
+        .values_list(
+            "start_location_id",
+            "start_location_name__location_name",
+            "start_location_name__system__name",
+        )
         .distinct()
     )
     out: dict[int, dict] = {}
-    for lid, name in rows:
+    for lid, name, system in rows:
         if lid and lid not in out:
-            out[lid] = {"location_id": lid, "name": name or f"Location {lid}"}
+            out[lid] = {"location_id": lid, "name": name or f"Location {lid}", "system": system or ""}
     return sorted(out.values(), key=lambda x: x["name"])
+
+
+def location_system_map():
+    """``{location_id: system_name}`` for the candidate stations."""
+    return {c["location_id"]: c["system"] for c in candidate_locations()}
 
 
 def _fits_by_doctrine():

@@ -31,10 +31,10 @@ class LocationForm(forms.ModelForm):
 
     class Meta:
         model = Location
-        fields = ["name", "location_id", "system_name", "enabled", "order"]
+        # system_name is derived from the chosen station, not entered.
+        fields = ["name", "location_id", "enabled", "order"]
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
-            "system_name": forms.TextInput(attrs={"class": "form-control"}),
             "order": forms.NumberInput(attrs={"class": "form-control"}),
         }
 

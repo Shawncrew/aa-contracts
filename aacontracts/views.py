@@ -133,6 +133,7 @@ def ship_catalog(request):
         "page_title": "Contract ship types",
         "groups": groups,
         "config": cfg,
+        "can_manage": True,
     })
 
 
@@ -164,7 +165,7 @@ def settings_view(request):
     else:
         form = GlobalConfigForm(instance=cfg)
     return render(request, "aacontracts/settings.html", {
-        "page_title": "Contracts settings", "form": form,
+        "page_title": "Contracts settings", "form": form, "can_manage": True,
     })
 
 
@@ -175,10 +176,13 @@ def settings_view(request):
 @permission_required("aacontracts.manage_contracts")
 def locations(request):
     candidates = queries.candidate_locations()
+    sysmap = {c["location_id"]: c["system"] for c in candidates}
     if request.method == "POST":
         form = LocationForm(request.POST, candidates=candidates)
         if form.is_valid():
-            loc = form.save()
+            loc = form.save(commit=False)
+            loc.system_name = sysmap.get(loc.location_id, loc.system_name)
+            loc.save()
             messages.success(request, f"Added location {loc.name}.")
             return redirect("aacontracts:location_edit", pk=loc.pk)
     else:
@@ -187,6 +191,7 @@ def locations(request):
         "page_title": "Contract locations",
         "locations": Location.objects.all(),
         "form": form,
+        "can_manage": True,
     })
 
 
@@ -203,9 +208,13 @@ def location_edit(request, pk):
             messages.success(request, "Location deleted.")
             return redirect("aacontracts:locations")
         if action == "details":
-            form = LocationForm(request.POST, instance=loc, candidates=queries.candidate_locations())
+            cands = queries.candidate_locations()
+            form = LocationForm(request.POST, instance=loc, candidates=cands)
             if form.is_valid():
-                form.save()
+                obj = form.save(commit=False)
+                sysmap = {c["location_id"]: c["system"] for c in cands}
+                obj.system_name = sysmap.get(obj.location_id, obj.system_name)
+                obj.save()
                 messages.success(request, "Location updated.")
             else:
                 messages.error(request, "Could not save location details.")
@@ -262,6 +271,7 @@ def location_edit(request, pk):
         "loc": loc,
         "form": LocationForm(instance=loc, candidates=queries.candidate_locations()),
         "groups": groups,
+        "can_manage": True,
     })
 
 

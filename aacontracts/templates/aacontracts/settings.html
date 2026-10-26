@@ -4,10 +4,8 @@
 
 {% block content %}
 <div class="container-fluid p-0">
-  <div class="d-flex align-items-center justify-content-between mb-3">
-    <h1 class="h3 mb-0">{{ page_title }}</h1>
-    <a href="{% url 'aacontracts:index' %}" class="btn btn-sm btn-secondary">Dashboard</a>
-  </div>
+  {% include "aacontracts/_nav.html" with active="settings" %}
+  <h1 class="h3 mb-3">{{ page_title }}</h1>
 
   <div class="row">
     <div class="col-12 col-lg-7">
@@ -23,6 +21,16 @@
           <div class="mb-3">
             <label class="form-label">Price basis</label>
             {{ form.price_basis }}
+            <div class="form-text">
+              How each item is priced at Jita 4-4 (Fuzzwork):
+              <ul class="mb-0 mt-1">
+                <li><strong>Sell — percentile</strong>: a robust “lowest sell” that ignores a handful of outlier-cheap orders. Closest to what you actually pay to buy. <em>Recommended.</em></li>
+                <li><strong>Sell — lowest order</strong>: the single cheapest sell order (can be a bait/outlier price).</li>
+                <li><strong>Buy — percentile</strong>: a robust “highest buy” — what buyers are currently paying.</li>
+                <li><strong>Buy — highest order</strong>: the single highest buy order.</li>
+                <li><strong>Split</strong>: the average of the lowest sell and the highest buy — a middle “fair” value between buying and selling.</li>
+              </ul>
+            </div>
           </div>
 
           <hr>

@@ -1,0 +1,10 @@
+{% load humanize %}
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item"><a class="nav-link{% if active == 'dashboard' %} active{% endif %}" href="{% url 'aacontracts:index' %}">Dashboard</a></li>
+  {% if can_manage %}
+    <li class="nav-item"><a class="nav-link{% if active == 'catalog' %} active{% endif %}" href="{% url 'aacontracts:catalog' %}">Ship types</a></li>
+    <li class="nav-item"><a class="nav-link{% if active == 'locations' %} active{% endif %}" href="{% url 'aacontracts:locations' %}">Locations</a></li>
+    <li class="nav-item"><a class="nav-link{% if active == 'settings' %} active{% endif %}" href="{% url 'aacontracts:settings' %}">Settings</a></li>
+  {% endif %}
+  <li class="nav-item ms-auto"><a class="nav-link text-muted" href="{% url 'aacontracts:data' %}">JSON</a></li>
+</ul>

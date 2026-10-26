@@ -33,9 +33,19 @@ def _dec(value) -> Decimal:
         return Decimal("0")
 
 
+def _extract(agg: dict, basis: str) -> Decimal:
+    """Pull the configured figure out of one Fuzzwork type aggregate."""
+    if basis == "sell_buy_split":
+        sell = _dec(agg.get("sell", {}).get("min"))
+        buy = _dec(agg.get("buy", {}).get("max"))
+        vals = [v for v in (sell, buy) if v > 0]
+        return (sum(vals) / len(vals)) if vals else Decimal("0")
+    side, field = _BASIS_FIELD.get(basis, ("sell", "percentile"))
+    return _dec(agg.get(side, {}).get(field))
+
+
 def fetch_fuzzwork_prices(type_ids, basis="sell_percentile") -> dict[int, Decimal]:
     """Return ``{type_id: unit_price}`` from Fuzzwork Jita 4-4 aggregates."""
-    side, field = _BASIS_FIELD.get(basis, ("sell", "percentile"))
     ids = sorted({int(t) for t in type_ids if t})
     out: dict[int, Decimal] = {}
     batch = max(1, app_settings.AACONTRACTS_FUZZWORK_BATCH)
@@ -50,8 +60,7 @@ def fetch_fuzzwork_prices(type_ids, basis="sell_percentile") -> dict[int, Decima
         with urllib.request.urlopen(req, timeout=app_settings.AACONTRACTS_HTTP_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         for tid_str, agg in data.items():
-            price = _dec(agg.get(side, {}).get(field))
-            out[int(tid_str)] = price
+            out[int(tid_str)] = _extract(agg, basis)
     return out
 
 
