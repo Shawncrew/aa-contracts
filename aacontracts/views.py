@@ -12,7 +12,7 @@ from django.urls import reverse
 from . import __version__, catalog, pricing, queries
 from .forms import GlobalConfigForm, LocationForm
 from .models import (
-    GlobalConfig, Location, LocationDoctrine, PriceSnapshot, SeedTarget, ShipFit,
+    DoctrineConfig, GlobalConfig, Location, LocationDoctrine, PriceSnapshot, SeedTarget, ShipFit,
 )
 
 
@@ -70,7 +70,14 @@ def ship_catalog(request):
         if action == "refresh_prices":
             pricing_refresh(request)
             return redirect("aacontracts:catalog")
-        # Save edited rows.
+        # Doctrine enable/disable toggles.
+        enabled_doc_ids = {int(x) for x in request.POST.getlist("doctrine_enabled")}
+        for dc in DoctrineConfig.objects.all():
+            want = dc.doctrine_id in enabled_doc_ids
+            if dc.enabled != want:
+                dc.enabled = want
+                dc.save(update_fields=["enabled"])
+        # Per-fit match name / custom price.
         changed = 0
         for fit in ShipFit.objects.all():
             prefix = str(fit.id)
@@ -98,7 +105,7 @@ def ship_catalog(request):
             if dirty:
                 fit.save()
                 changed += 1
-        messages.success(request, f"Saved {changed} ship type(s).")
+        messages.success(request, f"Saved doctrines and {changed} ship type(s).")
         return redirect("aacontracts:catalog")
 
     cfg = GlobalConfig.get()
@@ -106,6 +113,7 @@ def ship_catalog(request):
     from fittings.models import Doctrine
 
     doc_names = dict(Doctrine.objects.values_list("id", "name"))
+    enabled_docs = set(DoctrineConfig.objects.filter(enabled=True).values_list("doctrine_id", flat=True))
     fits = ShipFit.objects.select_related("fitting").prefetch_related("fitting__doctrines").all()
     by_doc: dict = {}
     no_doc = []
@@ -115,11 +123,11 @@ def ship_catalog(request):
         if not docs:
             no_doc.append(row)
         for d in docs:
-            by_doc.setdefault(d.id, {"name": doc_names.get(d.id, f"Doctrine {d.id}"), "rows": []})
+            by_doc.setdefault(d.id, {"id": d.id, "name": doc_names.get(d.id, f"Doctrine {d.id}"), "enabled": d.id in enabled_docs, "rows": []})
             by_doc[d.id]["rows"].append(row)
     groups = sorted(by_doc.values(), key=lambda g: g["name"])
     if no_doc:
-        groups.append({"name": "(no doctrine)", "rows": no_doc})
+        groups.append({"id": None, "name": "(no doctrine)", "enabled": False, "rows": no_doc})
 
     return render(request, "aacontracts/catalog.html", {
         "page_title": "Contract ship types",
@@ -166,14 +174,15 @@ def settings_view(request):
 @login_required
 @permission_required("aacontracts.manage_contracts")
 def locations(request):
+    candidates = queries.candidate_locations()
     if request.method == "POST":
-        form = LocationForm(request.POST)
+        form = LocationForm(request.POST, candidates=candidates)
         if form.is_valid():
             loc = form.save()
             messages.success(request, f"Added location {loc.name}.")
             return redirect("aacontracts:location_edit", pk=loc.pk)
     else:
-        form = LocationForm()
+        form = LocationForm(candidates=candidates)
     return render(request, "aacontracts/locations.html", {
         "page_title": "Contract locations",
         "locations": Location.objects.all(),
@@ -194,10 +203,12 @@ def location_edit(request, pk):
             messages.success(request, "Location deleted.")
             return redirect("aacontracts:locations")
         if action == "details":
-            form = LocationForm(request.POST, instance=loc)
+            form = LocationForm(request.POST, instance=loc, candidates=queries.candidate_locations())
             if form.is_valid():
                 form.save()
                 messages.success(request, "Location updated.")
+            else:
+                messages.error(request, "Could not save location details.")
             return redirect("aacontracts:location_edit", pk=pk)
         # Doctrine toggles.
         enabled_doc_ids = {int(x) for x in request.POST.getlist("doctrine")}
@@ -229,11 +240,19 @@ def location_edit(request, pk):
     targets = {
         t.ship_fit_id: t.target for t in SeedTarget.objects.filter(location=loc)
     }
-    fits = ShipFit.objects.filter(enabled=True).select_related("fitting").prefetch_related("fitting__doctrines")
+    from .matching import enabled_doctrine_ids
+
+    global_docs = enabled_doctrine_ids()
+    fits = (
+        ShipFit.objects.filter(fitting__doctrines__id__in=global_docs)
+        .distinct().select_related("fitting").prefetch_related("fitting__doctrines")
+    )
     doc_names = dict(Doctrine.objects.values_list("id", "name"))
     by_doc: dict = {}
     for sf in fits:
         for d in sf.fitting.doctrines.all():
+            if d.id not in global_docs:
+                continue
             by_doc.setdefault(d.id, {"id": d.id, "name": doc_names.get(d.id, ""), "enabled": d.id in enabled_docs, "rows": []})
             by_doc[d.id]["rows"].append({"fit": sf, "target": targets.get(sf.id, 0)})
     groups = sorted(by_doc.values(), key=lambda g: g["name"])
@@ -241,7 +260,7 @@ def location_edit(request, pk):
     return render(request, "aacontracts/location_edit.html", {
         "page_title": f"Location · {loc.name}",
         "loc": loc,
-        "form": LocationForm(instance=loc),
+        "form": LocationForm(instance=loc, candidates=queries.candidate_locations()),
         "groups": groups,
     })
 

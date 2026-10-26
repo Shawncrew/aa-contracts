@@ -9,15 +9,40 @@ from .matching import availability_by_location
 from .models import GlobalConfig, Location, SeedTarget, ShipFit
 
 
-def _fits_by_doctrine():
-    """``{doctrine_id: [ShipFit, ...]}`` for enabled fits."""
-    out: dict[int, list] = {}
-    qs = ShipFit.objects.filter(enabled=True).select_related("fitting").prefetch_related(
-        "fitting__doctrines"
+def candidate_locations():
+    """Stations/structures where alliance contracts exist, for the location picker.
+
+    Returns ``[{location_id, name}]`` sorted by name, resolved from corptools'
+    EveLocation names so users pick by name instead of typing a raw id.
+    """
+    from corptools.models import CorporateContract
+
+    rows = (
+        CorporateContract.objects.filter(assignee_id__in=app_settings.AACONTRACTS_ALLIANCE_IDS)
+        .exclude(start_location_id=None)
+        .values_list("start_location_id", "start_location_name__location_name")
+        .distinct()
     )
+    out: dict[int, dict] = {}
+    for lid, name in rows:
+        if lid and lid not in out:
+            out[lid] = {"location_id": lid, "name": name or f"Location {lid}"}
+    return sorted(out.values(), key=lambda x: x["name"])
+
+
+def _fits_by_doctrine():
+    """``{doctrine_id: [ShipFit, ...]}`` limited to globally-enabled doctrines."""
+    from .matching import enabled_doctrine_ids
+
+    enabled = enabled_doctrine_ids()
+    out: dict[int, list] = {}
+    qs = ShipFit.objects.filter(
+        fitting__doctrines__id__in=enabled
+    ).distinct().select_related("fitting").prefetch_related("fitting__doctrines")
     for sf in qs:
         for d in sf.fitting.doctrines.all():
-            out.setdefault(d.id, []).append(sf)
+            if d.id in enabled:
+                out.setdefault(d.id, []).append(sf)
     return out
 
 

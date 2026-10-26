@@ -32,7 +32,13 @@ def sync_fits(reset_match_names=False) -> dict:
     Returns counts. ``match_name`` is only seeded on creation (so admin edits
     survive re-syncs) unless ``reset_match_names`` is given.
     """
-    from fittings.models import Fitting
+    from fittings.models import Doctrine, Fitting
+
+    from .models import DoctrineConfig
+
+    # Ensure a config row exists for every doctrine (disabled by default).
+    for d in Doctrine.objects.all():
+        DoctrineConfig.objects.get_or_create(doctrine=d)
 
     fits = list(Fitting.objects.all())
     hull_ids = {f.ship_type_type_id for f in fits if f.ship_type_type_id}

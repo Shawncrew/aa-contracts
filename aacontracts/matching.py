@@ -15,12 +15,32 @@ def _norm(text: str) -> str:
     return _WS.sub(" ", (text or "").strip().lower())
 
 
-def build_matchers():
-    """Enabled fits with a match_name, longest match_name first."""
+def enabled_doctrine_ids():
+    """Doctrine ids globally enabled in the catalog."""
+    from .models import DoctrineConfig
+
+    return set(DoctrineConfig.objects.filter(enabled=True).values_list("doctrine_id", flat=True))
+
+
+def enabled_fits_qs():
+    """Active ShipFits.
+
+    A fit is active when its doctrine is enabled (doctrine-wide toggle) OR it is
+    individually enabled (``ShipFit.enabled``). Either control activates a fit.
+    """
+    from django.db.models import Q
+
     from .models import ShipFit
 
+    return ShipFit.objects.filter(
+        Q(fitting__doctrines__id__in=enabled_doctrine_ids()) | Q(enabled=True)
+    ).distinct()
+
+
+def build_matchers():
+    """Active fits (enabled doctrine) with a match_name, longest match_name first."""
     rows = []
-    for fit in ShipFit.objects.filter(enabled=True).exclude(match_name="").select_related("fitting"):
+    for fit in enabled_fits_qs().exclude(match_name="").select_related("fitting"):
         rows.append((_norm(fit.match_name), fit))
     rows.sort(key=lambda r: len(r[0]), reverse=True)
     return rows

@@ -92,8 +92,10 @@ def refresh_all_prices(snapshot=True) -> int:
 
     Returns the number of fits priced.
     """
+    from .matching import enabled_fits_qs
+
     cfg = GlobalConfig.get()
-    fits = list(ShipFit.objects.filter(enabled=True).select_related("fitting"))
+    fits = list(enabled_fits_qs().select_related("fitting"))
     if not fits:
         return 0
 

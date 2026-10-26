@@ -1,8 +1,15 @@
 from django.contrib import admin
 
 from .models import (
-    FitAlert, GlobalConfig, Location, LocationDoctrine, PriceSnapshot, SeedTarget, ShipFit,
+    DoctrineConfig, FitAlert, GlobalConfig, Location, LocationDoctrine,
+    PriceSnapshot, SeedTarget, ShipFit,
 )
+
+
+@admin.register(DoctrineConfig)
+class DoctrineConfigAdmin(admin.ModelAdmin):
+    list_display = ["doctrine", "enabled"]
+    list_editable = ["enabled"]
 
 
 @admin.register(GlobalConfig)

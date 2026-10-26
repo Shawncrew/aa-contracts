@@ -23,7 +23,9 @@
   <p class="text-muted small">
     Each fit from aa-fittings is one “ship type”. Set its <strong>match name</strong> to the contract title you seed
     it under (matched case-insensitively; the longest match wins, so you can distinguish the same hull across
-    doctrines). Prices are Jita 4-4 + {{ config.price_markup_percent }}% markup unless you set a custom price.
+    doctrines). A fit is tracked when its <strong>doctrine</strong> is ticked (header checkbox) <em>or</em> it is
+    <strong>enabled individually</strong> — either one activates it. Prices are Jita 4-4 +
+    {{ config.price_markup_percent }}% markup unless you set a custom price.
   </p>
 
   <form method="post">
@@ -33,14 +35,23 @@
     </div>
     {% for g in groups %}
     <div class="card mb-3">
-      <div class="card-header fw-semibold">{{ g.name }}</div>
+      <div class="card-header d-flex align-items-center gap-2">
+        {% if g.id %}
+          <input class="form-check-input mt-0" type="checkbox" name="doctrine_enabled" value="{{ g.id }}" id="doc_{{ g.id }}" {% if g.enabled %}checked{% endif %}>
+          <label class="fw-semibold mb-0" for="doc_{{ g.id }}">{{ g.name }}</label>
+          {% if not g.enabled %}<span class="badge bg-secondary">disabled</span>{% endif %}
+        {% else %}
+          <span class="fw-semibold">{{ g.name }}</span>
+          <span class="text-muted small">(no doctrine — not tracked)</span>
+        {% endif %}
+      </div>
       <div class="table-responsive">
         <table class="table table-sm align-middle mb-0">
           <thead class="text-muted small">
             <tr>
               <th style="width:16rem;">Fit (aa-fittings)</th>
               <th>Match name (contract title)</th>
-              <th style="width:6rem;" class="text-center">Enabled</th>
+              <th style="width:5rem;" class="text-center">Enable</th>
               <th style="width:10rem;" class="text-end">Jita+markup</th>
               <th style="width:12rem;" class="text-end">Custom price</th>
             </tr>
@@ -54,7 +65,7 @@
                 <div class="text-muted small">{{ sf.fitting.name }}</div>
               </td>
               <td><input type="text" class="form-control form-control-sm" name="match_name_{{ sf.id }}" value="{{ sf.match_name }}"></td>
-              <td class="text-center"><input type="checkbox" class="form-check-input" name="enabled_{{ sf.id }}" {% if sf.enabled %}checked{% endif %}></td>
+              <td class="text-center"><input type="checkbox" class="form-check-input" name="enabled_{{ sf.id }}" {% if sf.enabled %}checked{% endif %} title="Enable this fit individually (independent of the doctrine toggle)"></td>
               <td class="text-end font-monospace small">{% if row.price %}{{ row.price|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
               <td><input type="text" class="form-control form-control-sm text-end" name="custom_price_{{ sf.id }}" value="{{ sf.custom_price|default_if_none:'' }}" placeholder="auto"></td>
             </tr>

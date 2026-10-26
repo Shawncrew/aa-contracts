@@ -74,6 +74,23 @@ class GlobalConfig(models.Model):
         return "Contracts configuration"
 
 
+class DoctrineConfig(models.Model):
+    """Global on/off for an aa-fittings doctrine.
+
+    A fit is tracked (priced, matched, shown) when at least one doctrine it
+    belongs to is enabled here. Per-location seeding is then chosen separately
+    via LocationDoctrine.
+    """
+
+    doctrine = models.OneToOneField(
+        "fittings.Doctrine", on_delete=models.CASCADE, related_name="aacontracts_config"
+    )
+    enabled = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"doctrine {self.doctrine_id} ({'on' if self.enabled else 'off'})"
+
+
 class ShipFit(models.Model):
     """One trackable fit, mirroring an aa-fittings ``Fitting``.
 
@@ -93,7 +110,9 @@ class ShipFit(models.Model):
         help_text="Contract title this fit is seeded under (matched case-insensitively). "
                   "Set this to the contract description you use for this fit.",
     )
-    enabled = models.BooleanField(default=True)
+    # Individual opt-in, independent of the doctrine-wide toggle. A fit is
+    # active when its doctrine is enabled OR this is set.
+    enabled = models.BooleanField(default=False)
 
     custom_price = models.DecimalField(
         max_digits=20, decimal_places=2, null=True, blank=True,

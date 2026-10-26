@@ -119,7 +119,7 @@ def verify_fits_task():
 def update_status():
     """Orchestrator the Discord cog enqueues each cycle: prices, report, alerts."""
     # Refresh prices at most every _PRICE_STALE_SECONDS.
-    newest = ShipFit.objects.filter(enabled=True).order_by("-price_updated").values_list(
+    newest = matching.enabled_fits_qs().order_by("-price_updated").values_list(
         "price_updated", flat=True
     ).first()
     stale = newest is None or (timezone.now() - newest).total_seconds() > _PRICE_STALE_SECONDS

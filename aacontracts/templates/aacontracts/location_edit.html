@@ -20,9 +20,9 @@
     <input type="hidden" name="action" value="details">
     <div class="card-header">Details</div>
     <div class="card-body row g-2">
-      <div class="col-md-4"><label class="form-label">Name</label>{{ form.name }}</div>
-      <div class="col-md-3"><label class="form-label">Location id</label>{{ form.location_id }}</div>
-      <div class="col-md-3"><label class="form-label">System</label>{{ form.system_name }}</div>
+      <div class="col-md-3"><label class="form-label">Name</label>{{ form.name }}</div>
+      <div class="col-md-5"><label class="form-label">Station / structure</label>{{ form.location_id }}</div>
+      <div class="col-md-2"><label class="form-label">System</label>{{ form.system_name }}</div>
       <div class="col-md-2"><label class="form-label">Order</label>{{ form.order }}</div>
       <div class="col-12 form-check ms-1 mt-2">{{ form.enabled }}<label class="form-check-label">Enabled</label></div>
     </div>
