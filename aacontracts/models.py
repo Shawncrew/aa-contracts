@@ -59,7 +59,10 @@ class GlobalConfig(models.Model):
     discord_update_seconds = models.PositiveIntegerField(default=60)
     discord_enabled = models.BooleanField(default=False)
 
-    # Persistent id of the single "Alerts" (fit-mismatch) message in the channel.
+    # Persistent ids of the two summary messages posted after the location
+    # statuses: the shortage summary (pings the group) and the fit-mismatch
+    # alerts (pings issuers).
+    shortage_message_id = models.BigIntegerField(null=True, blank=True)
     alerts_message_id = models.BigIntegerField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
