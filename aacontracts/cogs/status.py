@@ -114,33 +114,20 @@ def _shortage_payload(role_mention):
 
 @sync_to_async
 def _alerts_payload():
-    """(text, contract_ids) for the fit-mismatch alerts, with issuer mentions."""
-    from allianceauth.authentication.models import CharacterOwnership
-    from allianceauth.services.modules.discord.models import DiscordUser
+    """(text, contract_ids) for the fit-mismatch alerts.
 
+    Individual @-pinging is disabled for now — issuers are shown by name only
+    (no Discord mention), so no one is tagged until this is dialled in.
+    """
     from ..models import FitAlert
 
     alerts = list(FitAlert.objects.select_related("ship_fit", "location"))
     if not alerts:
         return None, set()
 
-    issuer_ids = {a.issuer_id for a in alerts}
-    # issuer character -> owning auth user -> that user's Discord account
-    own = dict(
-        CharacterOwnership.objects.filter(character__character_id__in=issuer_ids)
-        .values_list("character__character_id", "user_id")
-    )
-    uids = dict(
-        DiscordUser.objects.filter(user_id__in=own.values()).values_list("user_id", "uid")
-    )
-    mention = {}
-    for cid in issuer_ids:
-        uid = uids.get(own.get(cid))
-        mention[cid] = f"<@{uid}>" if uid else None
-
     lines = ["⚠️ **Contract fit mismatches** (please fix or recontract):"]
     for a in alerts[:40]:
-        who = mention.get(a.issuer_id) or (a.issuer_name or f"char {a.issuer_id}")
+        who = a.issuer_name or f"char {a.issuer_id}"
         loc = f" @ {a.location.name}" if a.location else ""
         lines.append(f"• {who} — `{a.title}`{loc}: {a.detail}"[:320])
     if len(alerts) > 40:
@@ -274,8 +261,6 @@ class ContractsStatus(commands.Cog):
         # 3. Fit-mismatch alerts (pings issuers), after the shortage summary.
         try:
             alerts_text, alert_ids = await _alerts_payload()
-            last_ids = cache.get("aacontracts:alert_ids", set())
-            new_alerts = bool(alert_ids - set(last_ids))
             mid = cfg["alerts_message_id"]
             if alerts_text is None:
                 if mid:
@@ -285,11 +270,11 @@ class ContractsStatus(commands.Cog):
                     except discord.NotFound:
                         pass
             else:
+                # No @-mentions here, so always edit in place (no re-ping needed).
                 await self._edit_or_recreate(
                     channel, mid, alerts_text, allowed,
-                    recreate=bool(new_alerts), save_field="alerts_message_id",
+                    recreate=False, save_field="alerts_message_id",
                 )
-            cache.set("aacontracts:alert_ids", alert_ids, 86400)
         except Exception:
             logger.exception("aa-contracts: failed updating alerts message")
 
