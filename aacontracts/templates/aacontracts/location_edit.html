@@ -46,7 +46,9 @@
         <tbody>
           {% for row in g.rows %}
           <tr>
-            <td>{{ row.fit.hull_name }}<span class="text-muted small"> · {{ row.fit.fitting.name }}</span></td>
+            <td>{{ row.fit.hull_name }}<span class="text-muted small"> · {{ row.fit.fitting.name }}</span>
+              {% if row.fit.fitting.doctrines.all|length > 1 %}<span class="badge bg-info text-dark" title="Also in other doctrines — the target mirrors across them.">shared</span>{% endif %}
+            </td>
             <td class="small">{{ row.fit.match_name }}</td>
             <td class="text-end"><input type="number" min="0" class="form-control form-control-sm text-end" name="target_{{ row.fit.id }}" value="{{ row.target }}"></td>
           </tr>
@@ -61,4 +63,20 @@
     <div class="d-flex justify-content-end"><button class="btn btn-sm btn-primary">Save doctrines &amp; targets</button></div>
   </form>
 </div>
+
+<script>
+  // A shared fit (in several doctrines) shows one target input per group; keep
+  // them in sync so the target mirrors across doctrines and saves consistently.
+  (function () {
+    function mirror(e) {
+      var el = e.target;
+      if (!el.name || el.name.indexOf("target_") !== 0) return;
+      var twins = document.getElementsByName(el.name);
+      for (var i = 0; i < twins.length; i++) {
+        if (twins[i] !== el) twins[i].value = el.value;
+      }
+    }
+    document.addEventListener("input", mirror);
+  })();
+</script>
 {% endblock %}

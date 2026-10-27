@@ -61,7 +61,9 @@
             {% with sf=row.fit %}
             <tr>
               <td>
-                <div>{{ sf.hull_name|default:sf.fitting.ship_type_type_id }}</div>
+                <div>{{ sf.hull_name|default:sf.fitting.ship_type_type_id }}
+                  {% if sf.fitting.doctrines.all|length > 1 %}<span class="badge bg-info text-dark" title="This fit is in several doctrines — edits here mirror across all of them.">shared ×{{ sf.fitting.doctrines.all|length }}</span>{% endif %}
+                </div>
                 <div class="text-muted small">{{ sf.fitting.name }}</div>
               </td>
               <td><input type="text" class="form-control form-control-sm" name="match_name_{{ sf.id }}" value="{{ sf.match_name }}"></td>
@@ -81,4 +83,25 @@
     </div>
   </form>
 </div>
+
+<script>
+  // A fit can appear in several doctrine groups (same underlying record). Keep
+  // every input that shares a name in sync, so editing one copy mirrors to the
+  // others live and the form saves one consistent value.
+  (function () {
+    function mirror(e) {
+      var el = e.target;
+      if (!el.name || !/^(match_name|custom_price|enabled)_/.test(el.name)) return;
+      var twins = document.getElementsByName(el.name);
+      if (twins.length < 2) return;
+      for (var i = 0; i < twins.length; i++) {
+        if (twins[i] === el) continue;
+        if (el.type === "checkbox") twins[i].checked = el.checked;
+        else twins[i].value = el.value;
+      }
+    }
+    document.addEventListener("input", mirror);
+    document.addEventListener("change", mirror);
+  })();
+</script>
 {% endblock %}
