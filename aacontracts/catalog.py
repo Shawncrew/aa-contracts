@@ -75,15 +75,34 @@ def sync_fits(reset_match_names=False) -> dict:
     return {"total_fits": len(fits), "created": created, "updated": updated}
 
 
+# Inventory categories that are never part of a ship contract and so must not
+# count against a fit when verifying contract contents: Implant (20, which also
+# holds boosters). The hull itself (category 6) is kept.
+_NON_CONTRACT_CATEGORIES = {20}
+
+
 def expected_items(fit: ShipFit) -> dict[int, int]:
-    """Expected contract contents for a fit: hull + fitted items, type_id -> qty."""
-    expected: dict[int, int] = {}
+    """Expected contract contents for a fit: hull + fitted items, type_id -> qty.
+
+    Implants and boosters are excluded — they're listed in the fit but live in
+    the pod, so they're never in the contracted ship.
+    """
+    from eveuniverse.models import EveType
+
+    raw: dict[int, int] = {}
     if fit.hull_type_id:
-        expected[int(fit.hull_type_id)] = expected.get(int(fit.hull_type_id), 0) + 1
+        raw[int(fit.hull_type_id)] = raw.get(int(fit.hull_type_id), 0) + 1
     for tid, qty in fit.fitting.items.values_list("type_id", "quantity"):
         if tid:
-            expected[int(tid)] = expected.get(int(tid), 0) + int(qty or 1)
-    return expected
+            raw[int(tid)] = raw.get(int(tid), 0) + int(qty or 1)
+
+    cats = dict(
+        EveType.objects.filter(id__in=list(raw)).values_list("id", "eve_group__eve_category_id")
+    )
+    return {
+        tid: qty for tid, qty in raw.items()
+        if cats.get(tid) not in _NON_CONTRACT_CATEGORIES
+    }
 
 
 def verify_contract_items(contract_counts: dict[int, int], fit: ShipFit):
@@ -95,35 +114,21 @@ def verify_contract_items(contract_counts: dict[int, int], fit: ShipFit):
     """
     from eveuniverse.models import EveType
 
+    # Only flag required fit items the contract is MISSING. Extras (loaded ammo,
+    # spare cargo, boosters) are normal in a contract and not a fault; a wrong or
+    # swapped module still surfaces here as the correct item being missing.
     expected = expected_items(fit)
-    missing = {}   # in fit, not (enough) in contract
-    extra = {}     # in contract, not (expected) in fit
+    missing = {}
     for tid, qty in expected.items():
         have = contract_counts.get(tid, 0)
         if have < qty:
             missing[tid] = qty - have
-    for tid, qty in contract_counts.items():
-        exp = expected.get(tid, 0)
-        if qty > exp:
-            extra[tid] = qty - exp
 
-    if not missing and not extra:
+    if not missing:
         return True, ""
 
-    ids = list(missing) + list(extra)
-    names = dict(EveType.objects.filter(id__in=ids).values_list("id", "name"))
-
-    def fmt(d):
-        parts = []
-        for tid, qty in list(d.items())[:6]:
-            parts.append(f"{names.get(tid, tid)} ×{qty}")
-        if len(d) > 6:
-            parts.append(f"+{len(d) - 6} more")
-        return ", ".join(parts)
-
-    bits = []
-    if missing:
-        bits.append("missing " + fmt(missing))
-    if extra:
-        bits.append("extra " + fmt(extra))
-    return False, "; ".join(bits)
+    names = dict(EveType.objects.filter(id__in=list(missing)).values_list("id", "name"))
+    parts = [f"{names.get(tid, tid)} ×{qty}" for tid, qty in list(missing.items())[:6]]
+    if len(missing) > 6:
+        parts.append(f"+{len(missing) - 6} more")
+    return False, "missing " + ", ".join(parts)
