@@ -1,17 +1,18 @@
 """Discord status cog for aa-contracts.
 
-Channel layout (top to bottom), all persistent messages edited each cycle:
+Channel layout (top to bottom), persistent and edited each cycle:
 
-1. One message per location — 🔴/🟢 per fit, available/target. No pings.
-2. A **shortage summary** — pings the configured group, listing the short ships
-   per location ("Home — NC Napoc ×3, Heretic ×5").
-3. A **fit-mismatch alerts** message — pings each contract's issuer (resolved via
-   their main's linked Discord account) with what doesn't match aa-fittings.
+1. One **block per location** — only fits with a target or stock, grouped by
+   doctrine, each on its own line (🔴/🟢  avail/target  name). No pings.
+2. A **shortage summary** — one short ship per line, grouped by location; pings
+   the configured group when a new shortage appears.
+3. A **fit-mismatch alerts** block — one contract per line, issuer by name only
+   (no @-ping for now).
 
-Heavy work runs in Celery (``tasks.update_status``); this cog enqueues it and
-renders the cached results. Pings fire only on transition (a new shortage or a
-new mismatch) by recreating that one message, since Discord does not notify on
-edits.
+Every block is wrapped across as many Discord messages as it needs (never
+exceeding the ~2000-char message limit) and tracked in the DiscordMessage model
+so each message is edited in place. Heavy work runs in Celery
+(``tasks.update_status``); the cog renders the cached results.
 """
 import logging
 
@@ -25,16 +26,174 @@ from .. import app_settings
 
 logger = logging.getLogger(__name__)
 
+_MSG_LIMIT = 1950  # leave headroom under Discord's 2000-char limit
+
 
 def _fmt_isk(v):
     if v is None:
-        return "—"
+        return ""
     v = float(v)
     if v >= 1_000_000_000:
         return f"{v / 1_000_000_000:.2f}b"
     if v >= 1_000_000:
         return f"{v / 1_000_000:.0f}m"
     return f"{v:,.0f}"
+
+
+def _pack(lines, limit=_MSG_LIMIT):
+    """Pack lines into message-sized chunks without splitting a line."""
+    chunks, cur, n = [], [], 0
+    for ln in lines:
+        ln = ln[:limit]
+        add = len(ln) + 1
+        if cur and n + add > limit:
+            chunks.append("\n".join(cur))
+            cur, n = [ln], len(ln) + 1
+        else:
+            cur.append(ln)
+            n += add
+    if cur:
+        chunks.append("\n".join(cur))
+    return chunks
+
+
+# --------------------------------------------------------------------------- #
+#  Rendering (returns lists of lines)
+# --------------------------------------------------------------------------- #
+def _get_report():
+    report = cache.get("aacontracts:report")
+    if report is None:
+        from .. import queries
+
+        report = queries.build_report(use_cache=True)
+    return report
+
+
+def _location_lines(entry):
+    short = entry["short_count"]
+    head = f"__**{entry['name']}**__"
+    if entry["system_name"]:
+        head += f"  ·  {entry['system_name']}"
+    head += "  ·  " + (f"🔴 {short} short" if short else "🟢 stocked")
+    lines = [head]
+    for doc in entry["doctrines"]:
+        rows = [r for r in doc["rows"] if r["target"] > 0 or r["available"] > 0]
+        if not rows:
+            continue
+        lines.append(f"**{doc['doctrine_name']}**")
+        for r in rows:
+            flag = "🔴" if r["shortage"] > 0 else "🟢"
+            lines.append(f"{flag} `{r['available']:>3}/{r['target']:<3}` {r['name']}")
+    if len(lines) == 1:
+        lines.append("_no targets set_")
+    return lines
+
+
+@sync_to_async
+def _location_sections():
+    from ..models import Location
+
+    report = _get_report()
+    enabled = {loc.id for loc in Location.objects.filter(enabled=True)}
+    return [
+        (f"loc:{e['id']}", _location_lines(e))
+        for e in report["locations"] if e["id"] in enabled
+    ]
+
+
+@sync_to_async
+def _shortage_lines(role_mention):
+    report = _get_report()
+    sig, body = set(), []
+    for loc in report["locations"]:
+        shorts = []
+        for doc in loc["doctrines"]:
+            for r in doc["rows"]:
+                if r["shortage"] > 0:
+                    shorts.append((r["name"], r["shortage"]))
+                    sig.add(f"{loc['id']}:{r['fit_id']}")
+        if shorts:
+            body.append(f"__**{loc['name']}**__")
+            body += [f"• {name} — **{s}** short" for name, s in shorts]
+            body.append("")
+    if not body:
+        return [], set()
+    head = "📉 **Contract shortage — please restock**"
+    if role_mention:
+        head += f"  ·  {role_mention}"
+    return [head, ""] + body, sig
+
+
+@sync_to_async
+def _alerts_lines():
+    from ..models import FitAlert
+
+    alerts = list(FitAlert.objects.select_related("ship_fit", "location"))
+    if not alerts:
+        return []
+    lines = ["⚠️ **Contract fit mismatches** — please fix or recontract:", ""]
+    for a in alerts:
+        who = a.issuer_name or f"char {a.issuer_id}"
+        loc = f" @ {a.location.name}" if a.location else ""
+        lines.append(f"• {who} — `{a.title}`{loc}: {a.detail}")
+    return lines
+
+
+# --------------------------------------------------------------------------- #
+#  Section <-> message-id persistence
+# --------------------------------------------------------------------------- #
+@sync_to_async
+def _get_section(section):
+    from ..models import DiscordMessage
+
+    return list(
+        DiscordMessage.objects.filter(section=section).order_by("seq")
+        .values_list("message_id", flat=True)
+    )
+
+
+@sync_to_async
+def _set_section(section, ids):
+    from django.db import transaction
+
+    from ..models import DiscordMessage
+
+    with transaction.atomic():
+        DiscordMessage.objects.filter(section=section).delete()
+        DiscordMessage.objects.bulk_create(
+            [DiscordMessage(section=section, seq=i, message_id=mid) for i, mid in enumerate(ids)]
+        )
+
+
+@sync_to_async
+def _stale_location_sections(active):
+    from ..models import DiscordMessage
+
+    secs = set(
+        DiscordMessage.objects.filter(section__startswith="loc:").values_list("section", flat=True)
+    )
+    return [s for s in secs if s not in active]
+
+
+@sync_to_async
+def _legacy_message_ids():
+    from ..models import GlobalConfig, Location
+
+    locs = list(Location.objects.exclude(discord_message_id=None).values_list("discord_message_id", flat=True))
+    cfg = GlobalConfig.get()
+    extra = [m for m in (cfg.shortage_message_id, cfg.alerts_message_id) if m]
+    return locs + extra
+
+
+@sync_to_async
+def _clear_legacy():
+    from ..models import GlobalConfig, Location
+
+    Location.objects.exclude(discord_message_id=None).update(discord_message_id=None)
+    cfg = GlobalConfig.get()
+    cfg.shortage_message_id = None
+    cfg.alerts_message_id = None
+    cfg.save(update_fields=["shortage_message_id", "alerts_message_id"])
 
 
 @sync_to_async
@@ -48,109 +207,12 @@ def _load_config():
         "channel_id": int(channel_id) if channel_id else None,
         "interval": cfg.discord_update_seconds or 60,
         "ping_group": cfg.ping_group.name if cfg.ping_group_id else None,
-        "shortage_message_id": cfg.shortage_message_id,
-        "alerts_message_id": cfg.alerts_message_id,
     }
 
 
-def _get_report():
-    report = cache.get("aacontracts:report")
-    if report is None:
-        from .. import queries
-
-        report = queries.build_report(use_cache=True)
-    return report
-
-
-def _render_location(entry) -> str:
-    lines = [f"__**{entry['name']}**__" + (f" · {entry['system_name']}" if entry["system_name"] else "")]
-    for doc in entry["doctrines"]:
-        lines.append(f"**{doc['doctrine_name']}**")
-        for r in doc["rows"]:
-            flag = "🔴" if r["shortage"] > 0 else "🟢"
-            price = _fmt_isk(r["price"])
-            lines.append(
-                f"{flag} `{r['available']:>3}/{r['target']:<3}` {r['name']}"
-                + (f"  ({price})" if r["price"] else "")
-            )
-    return "\n".join(lines)[:1990]
-
-
-@sync_to_async
-def _location_rows():
-    from ..models import Location
-
-    report = _get_report()
-    loc_objs = {loc.id: loc for loc in Location.objects.filter(enabled=True)}
-    out = []
-    for entry in report["locations"]:
-        loc = loc_objs.get(entry["id"])
-        if loc is None:
-            continue
-        out.append({"loc_pk": loc.id, "message_id": loc.discord_message_id, "text": _render_location(entry)})
-    return out
-
-
-@sync_to_async
-def _shortage_payload(role_mention):
-    """(text, signature) for the shortage summary, or (None, set()) if stocked."""
-    report = _get_report()
-    lines = []
-    sig = set()
-    for loc in report["locations"]:
-        shorts = []
-        for doc in loc["doctrines"]:
-            for r in doc["rows"]:
-                if r["shortage"] > 0:
-                    shorts.append(f"{r['name']} ×{r['shortage']}")
-                    sig.add(f"{loc['id']}:{r['fit_id']}")
-        if shorts:
-            lines.append(f"**{loc['name']}** — " + ", ".join(shorts))
-    if not lines:
-        return None, set()
-    head = (role_mention + " " if role_mention else "") + "📉 **Contract shortage — please restock:**"
-    return (head + "\n" + "\n".join(lines))[:1990], sig
-
-
-@sync_to_async
-def _alerts_payload():
-    """(text, contract_ids) for the fit-mismatch alerts.
-
-    Individual @-pinging is disabled for now — issuers are shown by name only
-    (no Discord mention), so no one is tagged until this is dialled in.
-    """
-    from ..models import FitAlert
-
-    alerts = list(FitAlert.objects.select_related("ship_fit", "location"))
-    if not alerts:
-        return None, set()
-
-    lines = ["⚠️ **Contract fit mismatches** (please fix or recontract):"]
-    for a in alerts[:40]:
-        who = a.issuer_name or f"char {a.issuer_id}"
-        loc = f" @ {a.location.name}" if a.location else ""
-        lines.append(f"• {who} — `{a.title}`{loc}: {a.detail}"[:320])
-    if len(alerts) > 40:
-        lines.append(f"…and {len(alerts) - 40} more")
-    return "\n".join(lines)[:1990], {a.contract_id for a in alerts}
-
-
-@sync_to_async
-def _save_location_message(loc_pk, message_id):
-    from ..models import Location
-
-    Location.objects.filter(pk=loc_pk).update(discord_message_id=message_id)
-
-
-@sync_to_async
-def _save_cfg_message(field, message_id):
-    from ..models import GlobalConfig
-
-    cfg = GlobalConfig.get()
-    setattr(cfg, field, message_id)
-    cfg.save(update_fields=[field])
-
-
+# --------------------------------------------------------------------------- #
+#  Cog
+# --------------------------------------------------------------------------- #
 class ContractsStatus(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -171,25 +233,34 @@ class ContractsStatus(commands.Cog):
     async def _before(self):
         await self.bot.wait_until_ready()
 
-    async def _edit_or_recreate(self, channel, message_id, text, allowed, recreate, save_field):
-        """Edit the persistent message, or delete+resend it (to fire a ping)."""
-        if message_id and not recreate:
+    async def _sync_section(self, channel, section, chunks, allowed, recreate=False):
+        """Make the section's messages match ``chunks`` (edit, add, or remove)."""
+        existing = await _get_section(section)
+        if recreate:
+            for mid in existing:
+                try:
+                    await (await channel.fetch_message(mid)).delete()
+                except discord.NotFound:
+                    pass
+            existing = []
+        new_ids = []
+        for i, chunk in enumerate(chunks):
+            if i < len(existing):
+                try:
+                    msg = await channel.fetch_message(existing[i])
+                    await msg.edit(content=chunk, allowed_mentions=allowed)
+                    new_ids.append(existing[i])
+                    continue
+                except discord.NotFound:
+                    pass
+            msg = await channel.send(chunk, allowed_mentions=allowed)
+            new_ids.append(msg.id)
+        for mid in existing[len(chunks):]:
             try:
-                msg = await channel.fetch_message(message_id)
-                await msg.edit(content=text, allowed_mentions=allowed)
-                return message_id
+                await (await channel.fetch_message(mid)).delete()
             except discord.NotFound:
                 pass
-        if message_id and recreate:
-            try:
-                old = await channel.fetch_message(message_id)
-                await old.delete()
-            except discord.NotFound:
-                pass
-        msg = await channel.send(text, allowed_mentions=allowed)
-        if save_field:
-            await _save_cfg_message(save_field, msg.id)
-        return msg.id
+        await _set_section(section, new_ids)
 
     async def _refresh(self):
         cfg = await _load_config()
@@ -212,71 +283,60 @@ class ContractsStatus(commands.Cog):
             logger.warning("aa-contracts: channel %s not found", cfg["channel_id"])
             return
 
+        # One-time cleanup of the previous single-message layout.
+        legacy = await _legacy_message_ids()
+        if legacy:
+            for mid in legacy:
+                try:
+                    await (await channel.fetch_message(mid)).delete()
+                except discord.NotFound:
+                    pass
+            await _clear_legacy()
+
         role_mention = ""
         if cfg["ping_group"]:
             role = discord.utils.get(channel.guild.roles, name=cfg["ping_group"])
             if role:
                 role_mention = role.mention
+        # Only role mentions may ping; individual user pings stay disabled.
+        allowed = discord.AllowedMentions(everyone=False, roles=True, users=False)
 
-        allowed = discord.AllowedMentions(everyone=False, roles=True, users=True)
-
-        # 1. Per-location status messages (no pings).
-        for row in await _location_rows():
+        # 1. Per-location blocks.
+        active = set()
+        for key, lines in await _location_sections():
+            active.add(key)
             try:
-                mid = row["message_id"]
-                if mid:
-                    try:
-                        msg = await channel.fetch_message(mid)
-                        await msg.edit(content=row["text"], allowed_mentions=allowed)
-                        continue
-                    except discord.NotFound:
-                        pass
-                msg = await channel.send(row["text"], allowed_mentions=allowed)
-                await _save_location_message(row["loc_pk"], msg.id)
+                await self._sync_section(channel, key, _pack(lines), allowed)
             except Exception:
-                logger.exception("aa-contracts: failed updating location %s", row["loc_pk"])
+                logger.exception("aa-contracts: failed location %s", key)
+        # Remove blocks for locations that are gone/disabled.
+        for stale in await _stale_location_sections(active):
+            try:
+                await self._sync_section(channel, stale, [], allowed)
+            except Exception:
+                logger.exception("aa-contracts: failed clearing %s", stale)
 
-        # 2. Shortage summary (pings the group), after the locations.
+        # 2. Shortage summary (pings the group on a new shortage).
         try:
-            short_text, short_sig = await _shortage_payload(role_mention)
-            last_sig = cache.get("aacontracts:short_sig", set())
-            new_short = bool(short_sig - set(last_sig))
-            mid = cfg["shortage_message_id"]
-            if short_text is None:
-                if mid:
-                    try:
-                        m = await channel.fetch_message(mid)
-                        await m.edit(content="✅ All configured locations are stocked.")
-                    except discord.NotFound:
-                        pass
-            else:
-                await self._edit_or_recreate(
-                    channel, mid, short_text, allowed,
-                    recreate=bool(new_short and role_mention), save_field="shortage_message_id",
-                )
-            cache.set("aacontracts:short_sig", short_sig, 86400)
+            short_lines, sig = await _shortage_lines(role_mention)
+            last = cache.get("aacontracts:short_sig", set())
+            new_short = bool(sig - set(last))
+            chunks = _pack(short_lines) if short_lines else ["✅ All configured locations are stocked."]
+            await self._sync_section(
+                channel, "shortage", chunks, allowed,
+                recreate=bool(short_lines and new_short and role_mention),
+            )
+            cache.set("aacontracts:short_sig", sig, 86400)
         except Exception:
-            logger.exception("aa-contracts: failed updating shortage summary")
+            logger.exception("aa-contracts: failed shortage summary")
 
-        # 3. Fit-mismatch alerts (pings issuers), after the shortage summary.
+        # 3. Fit-mismatch alerts (names only, no ping).
         try:
-            alerts_text, alert_ids = await _alerts_payload()
-            mid = cfg["alerts_message_id"]
-            if alerts_text is None:
-                if mid:
-                    try:
-                        m = await channel.fetch_message(mid)
-                        await m.edit(content="✅ No contract fit mismatches.")
-                    except discord.NotFound:
-                        pass
-            else:
-                # No @-mentions here, so always edit in place (no re-ping needed).
-                await self._edit_or_recreate(
-                    channel, mid, alerts_text, allowed,
-                    recreate=False, save_field="alerts_message_id",
-                )
+            alert_lines = await _alerts_lines()
+            chunks = _pack(alert_lines) if alert_lines else ["✅ No contract fit mismatches."]
+            await self._sync_section(channel, "alerts", chunks, allowed)
         except Exception:
-            logger.exception("aa-contracts: failed updating alerts message")
+            logger.exception("aa-contracts: failed alerts block")
 
 
 def setup(bot):

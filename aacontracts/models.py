@@ -211,6 +211,23 @@ class TypePrice(models.Model):
     updated = models.DateTimeField(auto_now=True)
 
 
+class DiscordMessage(models.Model):
+    """Tracks the bot's persistent channel messages per section.
+
+    A section (one location, the shortage summary, the alerts) can span several
+    Discord messages when its content exceeds the message length limit, so each
+    (section, seq) maps to one posted message that the cog edits in place.
+    """
+
+    section = models.CharField(max_length=64, db_index=True)  # e.g. "loc:3", "shortage", "alerts"
+    seq = models.PositiveIntegerField(default=0)
+    message_id = models.BigIntegerField()
+
+    class Meta:
+        unique_together = [("section", "seq")]
+        ordering = ["section", "seq"]
+
+
 class FitAlert(models.Model):
     """A live contract whose items don't match its fit (feature: fit verification)."""
 
