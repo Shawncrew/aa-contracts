@@ -107,9 +107,11 @@ def _shortage_lines(role_mention):
     sig, body = set(), []
     for loc in report["locations"]:
         shorts = []
+        seen = set()  # a shared fit spans several doctrines — list it once per location
         for doc in loc["doctrines"]:
             for r in doc["rows"]:
-                if r["shortage"] > 0:
+                if r["shortage"] > 0 and r["fit_id"] not in seen:
+                    seen.add(r["fit_id"])
                     shorts.append((r["name"], r["shortage"]))
                     sig.add(f"{loc['id']}:{r['fit_id']}")
         if shorts:
