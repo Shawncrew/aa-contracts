@@ -94,18 +94,25 @@ def live_contracts():
 
 
 def availability_by_location():
-    """``{location_id: {ship_fit_id: count}}`` of live contracts matched per fit.
+    """``{location_id: {normalized_match_name: count}}`` of live contracts.
 
-    Keyed by raw EVE location id (contract start location); the caller maps those
-    to configured Locations.
+    Keyed by raw EVE location id (contract start location) and the *normalized
+    match name*, not a single fit id. A contract title can only resolve to one
+    fit, but several enabled fits may share a match name — e.g. the Nightmare
+    ``NM Hyena`` and the Maelstrom ``Rokh - Hyena`` are both seeded under the
+    contract title "NC Hyena". Crediting by name lets that one pool of hulls
+    count toward every doctrine's "NC Hyena" target, which is how a shared
+    support hull is actually seeded. The caller maps location ids to configured
+    Locations and looks availability up by each fit's own normalized match name.
     """
     matchers = build_matchers()
-    result: dict[int, dict[int, int]] = {}
+    result: dict[int, dict[str, int]] = {}
     for c in live_contracts():
         fit = match_title(c["title"], matchers)
         if fit is None:
             continue
+        name = _norm(fit.match_name)
         loc = c["start_location_id"] or 0
-        result.setdefault(loc, {}).setdefault(fit.id, 0)
-        result[loc][fit.id] += 1
+        result.setdefault(loc, {}).setdefault(name, 0)
+        result[loc][name] += 1
     return result

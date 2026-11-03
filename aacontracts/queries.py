@@ -5,7 +5,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from . import app_settings, pricing
-from .matching import availability_by_location
+from .matching import _norm, availability_by_location
 from .models import GlobalConfig, Location, SeedTarget, ShipFit
 
 
@@ -82,7 +82,7 @@ def build_report(use_cache=True) -> dict:
         if cached is not None:
             return cached
 
-    availability = availability_by_location()        # {eve_loc_id: {fit_id: count}}
+    availability = availability_by_location()        # {eve_loc_id: {norm_match_name: count}}
     fits_by_doc = _fits_by_doctrine()
     doc_names = _doctrine_names()
     markup = cfg.price_markup_percent
@@ -102,7 +102,9 @@ def build_report(use_cache=True) -> dict:
             rows = []
             doc_short = 0
             for sf in sorted(fits_by_doc.get(ld.doctrine_id, []), key=lambda f: (f.hull_name, f.match_name)):
-                available = avail.get(sf.id, 0)
+                # Availability is keyed by match name, so every fit sharing a
+                # name (NM Hyena / Rokh - Hyena) draws from the same contract pool.
+                available = avail.get(_norm(sf.match_name), 0) if sf.match_name else 0
                 target = targets.get((loc.id, sf.id), 0)
                 shortage = max(0, target - available)
                 if shortage > 0:
