@@ -69,12 +69,33 @@ def _get_report():
     return report
 
 
+def _tier(available, target):
+    """🟢 at/above target · 🟡 some stock but below · 🔴 none on contract."""
+    if available >= target:
+        return "🟢"
+    if available > 0:
+        return "🟡"
+    return "🔴"
+
+
 def _location_lines(entry):
-    short = entry["short_count"]
+    shown = [
+        r
+        for doc in entry["doctrines"]
+        for r in doc["rows"]
+        if r["target"] > 0 or r["available"] > 0
+    ]
+    # Header dot reflects the worst tier at this location.
+    if any(r["available"] == 0 and r["target"] > 0 for r in shown):
+        dot = f"🔴 {entry['short_count']} short"
+    elif any(0 < r["available"] < r["target"] for r in shown):
+        dot = f"🟡 {entry['short_count']} low"
+    else:
+        dot = "🟢 stocked"
     head = f"__**{entry['name']}**__"
     if entry["system_name"]:
         head += f"  ·  {entry['system_name']}"
-    head += "  ·  " + (f"🔴 {short} short" if short else "🟢 stocked")
+    head += "  ·  " + dot
     lines = [head]
     for doc in entry["doctrines"]:
         rows = [r for r in doc["rows"] if r["target"] > 0 or r["available"] > 0]
@@ -82,7 +103,7 @@ def _location_lines(entry):
             continue
         lines.append(f"**{doc['doctrine_name']}**")
         for r in rows:
-            flag = "🔴" if r["shortage"] > 0 else "🟢"
+            flag = _tier(r["available"], r["target"])
             lines.append(f"{flag} `{r['available']:>3}/{r['target']:<3}` {r['name']}")
     if len(lines) == 1:
         lines.append("_no targets set_")
