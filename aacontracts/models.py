@@ -240,6 +240,9 @@ class FitAlert(models.Model):
     )
     issuer_id = models.BigIntegerField()
     issuer_name = models.CharField(max_length=128, blank=True)
+    # Main character of the issuer (resolved via auth), shown in the alert in
+    # preference to the issuing character. Blank if the issuer isn't in auth.
+    main_name = models.CharField(max_length=128, blank=True)
     title = models.CharField(max_length=256, blank=True)
     detail = models.TextField(blank=True)
     first_seen = models.DateTimeField(default=timezone.now)

@@ -35,6 +35,31 @@ def _resolve_names(ids):
         return {}
 
 
+def _resolve_mains(ids):
+    """``character_id -> main character name`` for issuers registered in auth.
+
+    An issuing character is linked to its owner's main via CharacterOwnership;
+    characters not in auth (unregistered alts) are simply absent from the map.
+    """
+    ids = [i for i in ids if i]
+    if not ids:
+        return {}
+    try:
+        from allianceauth.authentication.models import CharacterOwnership
+
+        rows = (
+            CharacterOwnership.objects.filter(character__character_id__in=ids)
+            .values_list(
+                "character__character_id",
+                "user__profile__main_character__character_name",
+            )
+        )
+        return {cid: name for cid, name in rows if name}
+    except Exception:  # pragma: no cover - auth model shape change
+        logger.exception("aa-contracts: main-character resolve failed")
+        return {}
+
+
 @shared_task
 def sync_fits_task(reset_match_names=False):
     return catalog.sync_fits(reset_match_names=reset_match_names)
@@ -76,7 +101,9 @@ def verify_fits_task():
             d = item_counts.setdefault(cid, {})
             d[tid] = d.get(tid, 0) + int(qty or 1)
 
-    names = _resolve_names({c["issuer_id"] for c, _ in matched})
+    issuer_ids = {c["issuer_id"] for c, _ in matched}
+    names = _resolve_names(issuer_ids)
+    mains = _resolve_mains(issuer_ids)
 
     mismatches = []
     for c, fit in matched:
@@ -92,6 +119,7 @@ def verify_fits_task():
             "location": loc_by_eve.get(c["start_location_id"]),
             "issuer_id": c["issuer_id"],
             "issuer_name": names.get(c["issuer_id"], ""),
+            "main_name": mains.get(c["issuer_id"], ""),
             "title": c["title"],
             "detail": detail,
         })
@@ -107,6 +135,7 @@ def verify_fits_task():
                     "location": m["location"],
                     "issuer_id": m["issuer_id"],
                     "issuer_name": m["issuer_name"],
+                    "main_name": m["main_name"],
                     "title": m["title"],
                     "detail": m["detail"],
                     "last_seen": timezone.now(),

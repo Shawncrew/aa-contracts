@@ -40,10 +40,10 @@ def _fmt_isk(v):
     return f"{v:,.0f}"
 
 
-def _fmt_m(v):
-    """Price rounded to the nearest million, e.g. 45,300,000 -> '45m'."""
+def _fmt_isk_m(v):
+    """ISK rounded to the nearest million, e.g. 1,254m. '' when unknown."""
     if v is None:
-        return "?"
+        return ""
     return f"{round(float(v) / 1_000_000):,}m"
 
 
@@ -146,7 +146,7 @@ def _shortage_lines(role_mention):
         if shorts:
             body.append(f"__**{loc['name']}**__")
             body += [
-                f"• {name} — **{s}** short @ {_fmt_m(price)}"
+                f"• {name} — **{s}** short" + (f" @ {_fmt_isk_m(price)}" if price else "")
                 for name, s, price in shorts
             ]
             body.append("")
@@ -167,9 +167,13 @@ def _alerts_lines():
         return []
     lines = ["⚠️ **Contract fit mismatches** — please fix or recontract:", ""]
     for a in alerts:
-        who = a.issuer_name or f"char {a.issuer_id}"
+        # Show the issuer's main character (no @-ping yet); fall back to the
+        # issuing character, then the raw id if the issuer isn't in auth.
+        who = a.main_name or a.issuer_name or f"char {a.issuer_id}"
         loc = f" @ {a.location.name}" if a.location else ""
-        lines.append(f"• {who} — `{a.title}`{loc}: {a.detail}")
+        price = _fmt_isk_m(a.ship_fit.effective_price) if a.ship_fit else ""
+        price_str = f"  ·  {price}" if price else ""
+        lines.append(f"• {who} — `{a.title}`{loc}: {a.detail}{price_str}")
     return lines
 
 
