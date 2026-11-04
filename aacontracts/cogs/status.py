@@ -40,6 +40,13 @@ def _fmt_isk(v):
     return f"{v:,.0f}"
 
 
+def _fmt_m(v):
+    """Price rounded to the nearest million, e.g. 45,300,000 -> '45m'."""
+    if v is None:
+        return "?"
+    return f"{round(float(v) / 1_000_000):,}m"
+
+
 def _pack(lines, limit=_MSG_LIMIT):
     """Pack lines into message-sized chunks without splitting a line."""
     chunks, cur, n = [], [], 0
@@ -134,11 +141,14 @@ def _shortage_lines(role_mention):
                 key = (r["name"] or "").strip().lower()
                 if r["shortage"] > 0 and key not in seen:
                     seen.add(key)
-                    shorts.append((r["name"], r["shortage"]))
+                    shorts.append((r["name"], r["shortage"], r.get("price")))
                     sig.add(f"{loc['id']}:{key}")
         if shorts:
             body.append(f"__**{loc['name']}**__")
-            body += [f"• {name} — **{s}** short" for name, s in shorts]
+            body += [
+                f"• {name} — **{s}** short @ {_fmt_m(price)}"
+                for name, s, price in shorts
+            ]
             body.append("")
     if not body:
         return [], set()
