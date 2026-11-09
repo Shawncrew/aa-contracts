@@ -34,12 +34,23 @@ def index(request):
 @login_required
 @permission_required("aacontracts.view_contracts")
 def participation(request):
-    report = queries.participation_report()
-    return render(request, "aacontracts/participation.html", {
+    tab = request.GET.get("tab", "active")
+    ctx = {
         "page_title": "Contract participation",
-        "report": report,
         "can_manage": request.user.has_perm("aacontracts.manage_contracts"),
-    })
+        "ranges": queries.PARTICIPATION_RANGES,
+    }
+    if tab == "historical":
+        rkey = request.GET.get("range", "30d")
+        if rkey not in dict((k, d) for k, _l, d in queries.PARTICIPATION_RANGES):
+            rkey = "30d"
+        ctx["tab"] = "historical"
+        ctx["range_key"] = rkey
+        ctx["report"] = queries.participation_historical(queries.participation_range_days(rkey))
+    else:
+        ctx["tab"] = "active"
+        ctx["report"] = queries.participation_report()
+    return render(request, "aacontracts/participation.html", ctx)
 
 
 @login_required

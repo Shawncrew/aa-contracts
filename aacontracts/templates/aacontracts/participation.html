@@ -9,17 +9,43 @@
 
   <div class="d-flex align-items-center justify-content-between flex-wrap mb-3 gap-2">
     <h1 class="h3 mb-0">{{ page_title }}</h1>
-    <div class="text-muted small">
-      {{ report.total_contracts|intcomma }} contract{{ report.total_contracts|pluralize }} up
-      {% if report.group_name %}· suppliers group: <strong>{{ report.group_name }}</strong>{% endif %}
-    </div>
+    {% if tab == 'historical' %}
+      <div class="text-muted small">
+        {{ report.total_sold|intcomma }} ship{{ report.total_sold|pluralize }} sold
+        {% if report.days %}in the selected window{% else %}all-time{% endif %}
+        {% if report.group_name %}· suppliers group: <strong>{{ report.group_name }}</strong>{% endif %}
+      </div>
+    {% else %}
+      <div class="text-muted small">
+        {{ report.total_contracts|intcomma }} contract{{ report.total_contracts|pluralize }} up
+        {% if report.group_name %}· suppliers group: <strong>{{ report.group_name }}</strong>{% endif %}
+      </div>
+    {% endif %}
   </div>
+
+  <ul class="nav nav-pills mb-3 gap-1">
+    <li class="nav-item"><a class="nav-link{% if tab != 'historical' %} active{% endif %}" href="?tab=active">Active</a></li>
+    <li class="nav-item"><a class="nav-link{% if tab == 'historical' %} active{% endif %}" href="?tab=historical&range={{ range_key|default:'30d' }}">Historical</a></li>
+    {% if tab == 'historical' %}
+    <li class="nav-item ms-auto">
+      <form method="get" class="d-flex align-items-center gap-2">
+        <input type="hidden" name="tab" value="historical">
+        <label class="text-muted small mb-0">Sold in last</label>
+        <select name="range" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+          {% for key, label, days in ranges %}
+          <option value="{{ key }}"{% if key == range_key %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </li>
+    {% endif %}
+  </ul>
 
   {% if not report.group_name %}
     <div class="alert alert-info py-2">
-      No suppliers group is set, so this lists only people who currently have contracts up.
-      {% if can_manage %}Set the ping group under <a href="{% url 'aacontracts:settings' %}">Settings</a>
-      to include every supplier (even those with none up).{% endif %}
+      No suppliers group is set, so this lists only people with
+      {% if tab == 'historical' %}completed sales{% else %}contracts up{% endif %}.
+      {% if can_manage %}Set it under <a href="{% url 'aacontracts:settings' %}">Settings → Participation</a>.{% endif %}
     </div>
   {% endif %}
 
@@ -29,7 +55,7 @@
         <tr>
           <th style="width:3rem;" class="text-end">#</th>
           <th>Supplier (main)</th>
-          <th style="width:9rem;" class="text-end">Contracts up</th>
+          <th style="width:9rem;" class="text-end">{% if tab == 'historical' %}Ships sold{% else %}Contracts up{% endif %}</th>
           <th style="width:9rem;"></th>
         </tr>
       </thead>
@@ -39,7 +65,7 @@
           <td class="text-end">{{ forloop.counter }}</td>
           <td>
             {{ p.main_name }}
-            {% if not p.in_group %}<span class="badge bg-secondary" title="Has contracts up but isn't in the suppliers group">extra</span>{% endif %}
+            {% if not p.in_group %}<span class="badge bg-secondary" title="Not in the suppliers group">extra</span>{% endif %}
           </td>
           <td class="text-end">
             {% if p.total %}<strong>{{ p.total }}</strong>{% else %}<span class="badge bg-danger">0</span>{% endif %}
@@ -57,7 +83,7 @@
           <td></td>
           <td colspan="3">
             <table class="table table-sm mb-2">
-              <thead class="text-muted small"><tr><th>Ship type</th><th style="width:6rem;" class="text-end">Count</th></tr></thead>
+              <thead class="text-muted small"><tr><th>Ship type</th><th style="width:6rem;" class="text-end">{% if tab == 'historical' %}Sold{% else %}Count{% endif %}</th></tr></thead>
               <tbody>
                 {% for s in p.ships %}
                 <tr><td>{{ s.name }}</td><td class="text-end">{{ s.count }}</td></tr>
@@ -68,15 +94,20 @@
         </tr>
         {% endif %}
         {% empty %}
-        <tr><td colspan="4" class="text-muted">No suppliers and no contracts up.</td></tr>
+        <tr><td colspan="4" class="text-muted">Nothing to show.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
   <p class="text-muted small mt-3">
-    Contracts are matched to a ship type by title (the longest configured match name wins); unmatched
-    contracts are listed under their raw title. Live alliance contract state from corptools.
+    {% if tab == 'historical' %}
+      Ships sold = finished alliance contracts (deduped), credited to the issuer's main and dated by completion.
+      corptools retains roughly a year of contract history, so longer windows cap at what has been synced.
+    {% else %}
+      Contracts are matched to a ship type by title (longest match name wins); unmatched contracts show their raw title.
+    {% endif %}
+    Live contract state from corptools.
   </p>
 </div>
 {% endblock %}

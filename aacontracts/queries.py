@@ -89,50 +89,48 @@ def _doctrine_names():
     return dict(Doctrine.objects.values_list("id", "name"))
 
 
-def participation_report() -> dict:
-    """Who is seeding: each main character and the contracts they have up.
+# Look-back windows for the historical participation tab (key, label, days).
+PARTICIPATION_RANGES = [
+    ("7d", "7 days", 7),
+    ("30d", "30 days", 30),
+    ("3m", "3 months", 90),
+    ("6m", "6 months", 182),
+    ("1y", "1 year", 365),
+    ("2y", "2 years", 730),
+    ("3y", "3 years", 1095),
+    ("all", "All time", None),
+]
 
-    Rows are every member of the suppliers group (the configured ping group),
-    plus any other main character with live alliance contracts, ranked by how
-    many contracts they have up. Each row carries a per-ship-type breakdown.
+
+def participation_range_days(key):
+    """Days for a range key (None = all time); defaults to 30 days."""
+    for k, _label, days in PARTICIPATION_RANGES:
+        if k == key:
+            return days
+    return 30
+
+
+def _seed_suppliers(agg):
+    """Seed every suppliers-group member's main at zero so non-seeders show too.
+
+    Returns the group used (suppliers group, else the ping group, else None).
     """
     from collections import Counter
 
-    from . import matching
-
     cfg = GlobalConfig.get()
-    live = matching.live_contracts()
-    issuer_ids = {c["issuer_id"] for c in live}
-    mains = matching.resolve_mains(issuer_ids)
-    names = matching.resolve_names(issuer_ids)
-    matchers = matching.build_matchers()
-
-    agg: dict = {}
-
-    def bucket(name):
-        return agg.setdefault(name, {"total": 0, "ships": Counter(), "in_group": False})
-
-    # Seed every suppliers-group member's main at zero so non-seeders still show.
     group = cfg.suppliers_group or cfg.ping_group
     if group is not None:
-        members = group.user_set.select_related("profile__main_character").all()
-        for user in members:
+        for user in group.user_set.select_related("profile__main_character").all():
             prof = getattr(user, "profile", None)
             mc = getattr(prof, "main_character", None) if prof else None
             if mc and mc.character_name:
-                bucket(mc.character_name)["in_group"] = True
+                agg.setdefault(mc.character_name, {"total": 0, "ships": Counter(), "in_group": False})["in_group"] = True
+    return group
 
-    # Tally live contracts by issuer's main, broken down by ship type.
-    for c in live:
-        iid = c["issuer_id"]
-        main = mains.get(iid) or names.get(iid) or f"char {iid}"
-        fit = matching.match_title(c["title"], matchers)
-        ship = fit.match_name if (fit and fit.match_name) else (c["title"] or "Unknown").strip()
-        b = bucket(main)
-        b["total"] += 1
-        b["ships"][ship or "Unknown"] += 1
 
-    participants = [
+def _participants(agg):
+    """Sort the aggregate into ranked participant rows (most contracts first)."""
+    rows = [
         {
             "main_name": name,
             "total": v["total"],
@@ -141,11 +139,86 @@ def participation_report() -> dict:
         }
         for name, v in agg.items()
     ]
-    participants.sort(key=lambda p: (-p["total"], p["main_name"].lower()))
+    rows.sort(key=lambda p: (-p["total"], p["main_name"].lower()))
+    return rows
+
+
+def _tally_by_main(contracts):
+    """Aggregate ``[{issuer_id, title}, ...]`` into ``{main: {total, ships, in_group}}``.
+
+    Credits each contract to the issuer's main character and classifies the ship
+    type by title (matched fit name, else the raw title). Seeds the suppliers
+    group first so members with nothing show at zero.
+    """
+    from collections import Counter
+
+    from . import matching
+
+    agg: dict = {}
+    group = _seed_suppliers(agg)
+
+    issuer_ids = {c["issuer_id"] for c in contracts}
+    mains = matching.resolve_mains(issuer_ids)
+    names = matching.resolve_names(issuer_ids)
+    matchers = matching.build_matchers()
+
+    for c in contracts:
+        iid = c["issuer_id"]
+        main = mains.get(iid) or names.get(iid) or f"char {iid}"
+        fit = matching.match_title(c["title"], matchers)
+        ship = fit.match_name if (fit and fit.match_name) else (c["title"] or "Unknown").strip()
+        b = agg.setdefault(main, {"total": 0, "ships": Counter(), "in_group": False})
+        b["total"] += 1
+        b["ships"][ship or "Unknown"] += 1
+
+    return _participants(agg), (group.name if group is not None else None)
+
+
+def participation_report() -> dict:
+    """Active participation: each main and the contracts they have up now.
+
+    Rows are every member of the suppliers group plus any other main with live
+    alliance contracts, ranked by contracts up, each with a ship-type breakdown.
+    """
+    from . import matching
+
+    live = matching.live_contracts()
+    participants, group_name = _tally_by_main(live)
     return {
         "participants": participants,
         "total_contracts": len(live),
-        "group_name": group.name if group is not None else None,
+        "group_name": group_name,
+    }
+
+
+def participation_historical(days=None) -> dict:
+    """Historical participation: ships sold (finished alliance contracts) per main.
+
+    ``days`` is the look-back window (None = all time). Contracts are deduped by
+    id (corp copies duplicate rows) and dated by completion.
+    """
+    from datetime import timedelta
+
+    from corptools.models import CorporateContract
+
+    qs = CorporateContract.objects.filter(
+        assignee_id__in=app_settings.AACONTRACTS_ALLIANCE_IDS,
+        status="finished",
+    )
+    if days is not None:
+        qs = qs.filter(date_completed__gte=timezone.now() - timedelta(days=days))
+
+    # Dedupe corp copies: one row per real contract (shared id/issuer/title).
+    contracts = [
+        {"issuer_id": iid, "title": title}
+        for _cid, iid, title in qs.values_list("contract_id", "issuer_id", "title").distinct()
+    ]
+    participants, group_name = _tally_by_main(contracts)
+    return {
+        "participants": participants,
+        "total_sold": len(contracts),
+        "group_name": group_name,
+        "days": days,
     }
 
 
