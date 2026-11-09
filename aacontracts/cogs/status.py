@@ -77,10 +77,12 @@ def _get_report():
 
 
 def _tier(available, target):
-    """Four-step heat by fill % of target, matching the web gradient's bands:
-    🟢 at/above target · 🟡 ≥60% · 🟠 ≥30% · 🔴 below 30% (incl. none)."""
+    """Heat by fill % of target, matching the web gradient's bands:
+    🟢 at/above target · 🟡 ≥60% · 🟠 ≥30% · 🔴 below 30% · ⚫ none seeded."""
     if target <= 0 or available >= target:
         return "🟢"
+    if available <= 0:
+        return "⚫"
     pct = 100.0 * available / target
     if pct >= 60:
         return "🟡"
