@@ -102,7 +102,7 @@ def build_report(use_cache=True) -> dict:
         key=lambda f: (f.hull_name, f.match_name),
     )
 
-    def _row(sf, avail):
+    def _row(sf, avail, loc_markup):
         # Availability is keyed by match name, so every fit sharing a name
         # (NM Hyena / Rokh - Hyena) draws from the same contract pool.
         available = avail.get(_norm(sf.match_name), 0) if sf.match_name else 0
@@ -114,19 +114,22 @@ def build_report(use_cache=True) -> dict:
             "available": available,
             "target": target,
             "shortage": max(0, target - available),
-            "price": pricing.final_price(sf, markup),
+            "price": pricing.final_price(sf, loc_markup),
         }
 
     locations = []
     for loc in Location.objects.filter(enabled=True).prefetch_related("doctrines"):
         avail = availability.get(loc.location_id, {})
+        # Effective markup here: the greater of the global markup and this
+        # location's minimum, so remote stations can be priced higher.
+        loc_markup = max(markup, loc.min_markup_percent or 0)
         loc_doctrines = []
         loc_short = 0
         for ld in loc.doctrines.filter(enabled=True):
             rows = []
             doc_short = 0
             for sf in sorted(fits_by_doc.get(ld.doctrine_id, []), key=lambda f: (f.hull_name, f.match_name)):
-                r = _row(sf, avail)
+                r = _row(sf, avail, loc_markup)
                 if r["shortage"] > 0:
                     doc_short += 1
                 rows.append(r)
@@ -146,7 +149,7 @@ def build_report(use_cache=True) -> dict:
         for sf in individual_fits:
             if sf.id in shown:
                 continue
-            r = _row(sf, avail)
+            r = _row(sf, avail, loc_markup)
             if r["target"] == 0 and r["available"] == 0:
                 continue
             if r["shortage"] > 0:
@@ -168,6 +171,7 @@ def build_report(use_cache=True) -> dict:
             "system_name": loc.system_name,
             "doctrines": loc_doctrines,
             "short_count": loc_short,
+            "markup": float(loc_markup),
         })
 
     result = {

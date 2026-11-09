@@ -23,6 +23,7 @@
           <span>
             <strong>{{ loc.name }}</strong>
             {% if loc.system_name %}<span class="text-muted small">· {{ loc.system_name }}</span>{% endif %}
+            <span class="text-muted small">· {{ loc.markup }}% markup</span>
           </span>
           {% if loc.short_count %}
             <span class="badge bg-danger">{{ loc.short_count }} short</span>
@@ -70,8 +71,8 @@
   </div>
 
   <p class="text-muted small mt-3">
-    Prices are Jita 4-4 (Fuzzwork) + {{ report.markup }}% markup, or an admin override. Live contract
-    state from corptools. Generated {{ report.generated }}.
+    Prices are Jita 4-4 (Fuzzwork) + markup (global {{ report.markup }}%, raised per location where set —
+    shown on each card), or an admin override. Live contract state from corptools. Generated {{ report.generated }}.
   </p>
 </div>
 {% endblock %}

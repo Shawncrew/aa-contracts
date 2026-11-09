@@ -111,7 +111,9 @@ def _location_lines(entry):
         lines.append(f"**{doc['doctrine_name']}**")
         for r in rows:
             flag = _tier(r["available"], r["target"])
-            lines.append(f"{flag} `{r['available']:>3}/{r['target']:<3}` {r['name']}")
+            price = _fmt_isk_m(r.get("price"))
+            tail = f"  ·  {price}" if price else ""
+            lines.append(f"{flag} `{r['available']:>3}/{r['target']:<3}` {r['name']}{tail}")
     if len(lines) == 1:
         lines.append("_no targets set_")
     return lines

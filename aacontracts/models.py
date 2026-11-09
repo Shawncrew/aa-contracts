@@ -152,6 +152,16 @@ class Location(models.Model):
     enabled = models.BooleanField(default=True)
     order = models.PositiveIntegerField(default=0)
 
+    # Per-location minimum markup. A remote staging system can demand a higher
+    # markup than the global default; the price uses whichever is higher, so
+    # this never lowers a fit below the global markup.
+    min_markup_percent = models.DecimalField(
+        max_digits=6, decimal_places=2, default=Decimal("0"),
+        help_text="Minimum markup % at this location. The effective markup is the "
+                  "greater of this and the global markup, so remote stations can be "
+                  "priced higher. 0 = just use the global markup.",
+    )
+
     # Persistent id of this location's status message in the Discord channel.
     discord_message_id = models.BigIntegerField(null=True, blank=True)
 

@@ -40,6 +40,7 @@ def data(request):
         out["locations"].append({
             "name": loc["name"],
             "short_count": loc["short_count"],
+            "markup": loc["markup"],
             "doctrines": [
                 {
                     "doctrine": d["doctrine_name"],
