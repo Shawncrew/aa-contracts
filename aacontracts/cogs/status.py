@@ -77,11 +77,15 @@ def _get_report():
 
 
 def _tier(available, target):
-    """🟢 at/above target · 🟡 some stock but below · 🔴 none on contract."""
-    if available >= target:
+    """Four-step heat by fill % of target, matching the web gradient's bands:
+    🟢 at/above target · 🟡 ≥60% · 🟠 ≥30% · 🔴 below 30% (incl. none)."""
+    if target <= 0 or available >= target:
         return "🟢"
-    if available > 0:
+    pct = 100.0 * available / target
+    if pct >= 60:
         return "🟡"
+    if pct >= 30:
+        return "🟠"
     return "🔴"
 
 
