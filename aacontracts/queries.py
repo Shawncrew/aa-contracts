@@ -139,7 +139,8 @@ def _participants(agg):
         }
         for name, v in agg.items()
     ]
-    rows.sort(key=lambda p: (-p["total"], p["main_name"].lower()))
+    # "Unknown" (unattributed contracts) always sorts last, not as a top supplier.
+    rows.sort(key=lambda p: (p["main_name"] == "Unknown", -p["total"], p["main_name"].lower()))
     return rows
 
 
@@ -164,7 +165,9 @@ def _tally_by_main(contracts):
 
     for c in contracts:
         iid = c["issuer_id"]
-        main = mains.get(iid) or names.get(iid) or f"char {iid}"
+        # issuer_id 0 = EVE never recorded the issuer (contracts synced before
+        # corptools began capturing it, ~Aug 2026). Pool them as "Unknown".
+        main = "Unknown" if not iid else (mains.get(iid) or names.get(iid) or f"char {iid}")
         fit = matching.match_title(c["title"], matchers)
         ship = fit.match_name if (fit and fit.match_name) else (c["title"] or "Unknown").strip()
         b = agg.setdefault(main, {"total": 0, "ships": Counter(), "in_group": False})

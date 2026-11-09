@@ -65,7 +65,8 @@
           <td class="text-end">{{ forloop.counter }}</td>
           <td>
             {{ p.main_name }}
-            {% if not p.in_group %}<span class="badge bg-secondary" title="Not in the suppliers group">extra</span>{% endif %}
+            {% if p.main_name == 'Unknown' %}<span class="badge bg-dark" title="Contracts with no issuer recorded by EVE (synced before ~Aug 2026)">unattributed</span>
+            {% elif not p.in_group %}<span class="badge bg-secondary" title="Not in the suppliers group">extra</span>{% endif %}
           </td>
           <td class="text-end">
             {% if p.total %}<strong>{{ p.total }}</strong>{% else %}<span class="badge bg-danger">0</span>{% endif %}
