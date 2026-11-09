@@ -225,8 +225,8 @@ def location_edit(request, pk):
             else:
                 messages.error(request, "Could not save location details.")
             return redirect("aacontracts:location_edit", pk=pk)
-        # Doctrine toggles.
-        enabled_doc_ids = {int(x) for x in request.POST.getlist("doctrine")}
+        # Doctrine toggles (the "Individual ships" group has no doctrine checkbox).
+        enabled_doc_ids = {int(x) for x in request.POST.getlist("doctrine") if x.isdigit()}
         for d in Doctrine.objects.all():
             ld, _ = LocationDoctrine.objects.get_or_create(location=loc, doctrine=d)
             want = d.id in enabled_doc_ids
@@ -272,6 +272,20 @@ def location_edit(request, pk):
             by_doc.setdefault(d.id, {"id": d.id, "name": doc_names.get(d.id, ""), "enabled": d.id in enabled_docs, "rows": []})
             by_doc[d.id]["rows"].append({"fit": sf, "target": targets.get(sf.id, 0)})
     groups = sorted(by_doc.values(), key=lambda g: g["name"])
+
+    # Individually-enabled fits whose doctrine isn't globally enabled have no
+    # doctrine group above, so give them their own group to set targets in.
+    indiv = (
+        ShipFit.objects.filter(enabled=True)
+        .exclude(fitting__doctrines__id__in=global_docs)
+        .distinct().select_related("fitting")
+    )
+    indiv_rows = [
+        {"fit": sf, "target": targets.get(sf.id, 0)}
+        for sf in sorted(indiv, key=lambda f: (f.hull_name, f.match_name))
+    ]
+    if indiv_rows:
+        groups.append({"id": None, "name": "Individual ships", "enabled": None, "rows": indiv_rows})
 
     return render(request, "aacontracts/location_edit.html", {
         "page_title": f"Location · {loc.name}",

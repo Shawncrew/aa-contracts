@@ -38,8 +38,13 @@
     {% for g in groups %}
     <div class="card mb-3">
       <div class="card-header d-flex align-items-center gap-2">
-        <input class="form-check-input mt-0" type="checkbox" name="doctrine" value="{{ g.id }}" {% if g.enabled %}checked{% endif %}>
-        <span class="fw-semibold">{{ g.name }}</span>
+        {% if g.id %}
+          <input class="form-check-input mt-0" type="checkbox" name="doctrine" value="{{ g.id }}" {% if g.enabled %}checked{% endif %}>
+          <span class="fw-semibold">{{ g.name }}</span>
+        {% else %}
+          <span class="fw-semibold">{{ g.name }}</span>
+          <span class="text-muted small">(enabled individually on Ship types)</span>
+        {% endif %}
       </div>
       <table class="table table-sm align-middle mb-0">
         <thead class="text-muted small"><tr><th>Fit</th><th>Match name</th><th style="width:8rem;" class="text-end">Target</th></tr></thead>

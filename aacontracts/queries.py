@@ -93,6 +93,30 @@ def build_report(use_cache=True) -> dict:
         for t in SeedTarget.objects.all()
     }
 
+    # Individually-enabled fits (ShipFit.enabled=True) are tracked independently
+    # of the doctrine toggles — the "enable a single ship instead of a whole
+    # doctrine" path. They have no doctrine group to render under, so they get a
+    # synthetic "Individual ships" group per location.
+    individual_fits = sorted(
+        ShipFit.objects.filter(enabled=True).select_related("fitting"),
+        key=lambda f: (f.hull_name, f.match_name),
+    )
+
+    def _row(sf, avail):
+        # Availability is keyed by match name, so every fit sharing a name
+        # (NM Hyena / Rokh - Hyena) draws from the same contract pool.
+        available = avail.get(_norm(sf.match_name), 0) if sf.match_name else 0
+        target = targets.get((loc.id, sf.id), 0)
+        return {
+            "fit_id": sf.id,
+            "hull": sf.hull_name,
+            "name": sf.match_name or sf.hull_name,
+            "available": available,
+            "target": target,
+            "shortage": max(0, target - available),
+            "price": pricing.final_price(sf, markup),
+        }
+
     locations = []
     for loc in Location.objects.filter(enabled=True).prefetch_related("doctrines"):
         avail = availability.get(loc.location_id, {})
@@ -102,23 +126,10 @@ def build_report(use_cache=True) -> dict:
             rows = []
             doc_short = 0
             for sf in sorted(fits_by_doc.get(ld.doctrine_id, []), key=lambda f: (f.hull_name, f.match_name)):
-                # Availability is keyed by match name, so every fit sharing a
-                # name (NM Hyena / Rokh - Hyena) draws from the same contract pool.
-                available = avail.get(_norm(sf.match_name), 0) if sf.match_name else 0
-                target = targets.get((loc.id, sf.id), 0)
-                shortage = max(0, target - available)
-                if shortage > 0:
+                r = _row(sf, avail)
+                if r["shortage"] > 0:
                     doc_short += 1
-                price = pricing.final_price(sf, markup)
-                rows.append({
-                    "fit_id": sf.id,
-                    "hull": sf.hull_name,
-                    "name": sf.match_name or sf.hull_name,
-                    "available": available,
-                    "target": target,
-                    "shortage": shortage,
-                    "price": price,
-                })
+                rows.append(r)
             if rows:
                 loc_doctrines.append({
                     "doctrine_id": ld.doctrine_id,
@@ -127,6 +138,29 @@ def build_report(use_cache=True) -> dict:
                     "short_count": doc_short,
                 })
                 loc_short += doc_short
+
+        # Individual ships: those not already shown under an enabled doctrine
+        # here, that have a target set or stock on contract at this location.
+        shown = {r["fit_id"] for d in loc_doctrines for r in d["rows"]}
+        indiv_rows, indiv_short = [], 0
+        for sf in individual_fits:
+            if sf.id in shown:
+                continue
+            r = _row(sf, avail)
+            if r["target"] == 0 and r["available"] == 0:
+                continue
+            if r["shortage"] > 0:
+                indiv_short += 1
+            indiv_rows.append(r)
+        if indiv_rows:
+            loc_doctrines.append({
+                "doctrine_id": None,
+                "doctrine_name": "Individual ships",
+                "rows": indiv_rows,
+                "short_count": indiv_short,
+            })
+            loc_short += indiv_short
+
         locations.append({
             "id": loc.id,
             "location": loc,

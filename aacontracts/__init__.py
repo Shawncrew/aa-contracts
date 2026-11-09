@@ -2,5 +2,5 @@
 
 default_app_config = "aacontracts.apps.AaContractsConfig"
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 __title__ = "Contracts"
