@@ -12,6 +12,22 @@ from .models import GlobalConfig, Location, SeedTarget, ShipFit
 REPORT_CACHE_KEY = "aacontracts:report"
 
 
+def _fill_color(available, target):
+    """Sliding red→green scale by fill percentage (available / target).
+
+    Returns ``(fill_pct, css_color)``. Hue runs 0° (red, nothing seeded) through
+    60° (yellow, half) to 120° (green, at/above target), so the colour slides
+    continuously rather than snapping between a few tiers. Rows with no target
+    have nothing to measure against, so they get ``(None, None)`` (uncoloured).
+    """
+    if target <= 0:
+        return None, None
+    frac = max(0.0, min(1.0, available / target))
+    hue = round(120 * frac)
+    # Semi-transparent so it reads over the dark dashboard and keeps text legible.
+    return round(frac * 100), f"hsla({hue}, 70%, 42%, 0.45)"
+
+
 def invalidate_report():
     """Drop the cached dashboard report so the next load rebuilds it.
 
@@ -175,6 +191,7 @@ def build_report(use_cache=True) -> dict:
             tier = "low"
         else:
             tier = "none"
+        fill_pct, color = _fill_color(available, target)
         return {
             "fit_id": sf.id,
             "hull": sf.hull_name,
@@ -183,6 +200,8 @@ def build_report(use_cache=True) -> dict:
             "target": target,
             "shortage": max(0, target - available),
             "tier": tier,
+            "fill_pct": fill_pct,
+            "color": color,
             "price": pricing.final_price(sf, loc_markup),
         }
 

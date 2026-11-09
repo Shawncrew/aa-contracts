@@ -6,7 +6,15 @@
 {% block content %}
 <div class="container-fluid p-0">
   {% include "aacontracts/_nav.html" with active="dashboard" %}
-  <h1 class="h3 mb-3">{{ page_title }}</h1>
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <h1 class="h3 mb-0">{{ page_title }}</h1>
+    <div class="small text-muted d-flex align-items-center gap-2">
+      <span>Stock vs target</span>
+      <span style="display:inline-block;width:9rem;height:.9rem;border-radius:3px;
+        background:linear-gradient(90deg,hsl(0,70%,42%),hsl(30,70%,42%),hsl(60,70%,42%),hsl(90,70%,42%),hsl(120,70%,42%));"></span>
+      <span>0%</span><span class="ms-auto">100%</span>
+    </div>
+  </div>
 
   {% if not report.locations %}
     <div class="alert alert-info">
@@ -50,7 +58,7 @@
               </thead>
               <tbody>
                 {% for r in doc.rows %}
-                <tr class="{% if r.tier == 'none' %}table-danger{% elif r.tier == 'low' %}table-warning{% endif %}">
+                <tr{% if r.color %} style="--bs-table-bg: {{ r.color }};"{% endif %}>
                   <td>{{ r.name }}{% if r.hull and r.hull != r.name %}<span class="text-muted small"> · {{ r.hull }}</span>{% endif %}</td>
                   <td class="text-end">{{ r.available }}</td>
                   <td class="text-end">{{ r.target }}</td>
