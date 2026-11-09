@@ -8,6 +8,7 @@ app_name = "aacontracts"
 
 urlpatterns = [
     path("", views.index, name="index"),
+    path("participation/", views.participation, name="participation"),
     path("data.json", views.data, name="data"),
     path("catalog/", views.ship_catalog, name="catalog"),
     path("settings/", views.settings_view, name="settings"),

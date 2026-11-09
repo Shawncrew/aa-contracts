@@ -9,6 +9,7 @@ class GlobalConfigForm(forms.ModelForm):
         fields = [
             "price_markup_percent",
             "price_basis",
+            "suppliers_group",
             "discord_enabled",
             "discord_channel_id",
             "ping_group",
@@ -17,6 +18,7 @@ class GlobalConfigForm(forms.ModelForm):
         widgets = {
             "price_markup_percent": forms.NumberInput(attrs={"class": "form-control", "step": "0.1"}),
             "price_basis": forms.Select(attrs={"class": "form-select"}),
+            "suppliers_group": forms.Select(attrs={"class": "form-select"}),
             "discord_channel_id": forms.NumberInput(attrs={"class": "form-control"}),
             "ping_group": forms.Select(attrs={"class": "form-select"}),
             "discord_update_seconds": forms.NumberInput(attrs={"class": "form-control"}),

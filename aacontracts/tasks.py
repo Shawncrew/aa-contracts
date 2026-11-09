@@ -22,42 +22,9 @@ logger = logging.getLogger(__name__)
 _PRICE_STALE_SECONDS = 1800  # refresh prices at most this often from the status loop
 
 
-def _resolve_names(ids):
-    """``eve_id -> name`` for characters/entities, via corptools' name cache."""
-    ids = [i for i in ids if i]
-    if not ids:
-        return {}
-    try:
-        from corptools.models import EveName
-
-        return dict(EveName.objects.filter(eve_id__in=ids).values_list("eve_id", "name"))
-    except Exception:  # pragma: no cover - corptools name model optional
-        return {}
-
-
-def _resolve_mains(ids):
-    """``character_id -> main character name`` for issuers registered in auth.
-
-    An issuing character is linked to its owner's main via CharacterOwnership;
-    characters not in auth (unregistered alts) are simply absent from the map.
-    """
-    ids = [i for i in ids if i]
-    if not ids:
-        return {}
-    try:
-        from allianceauth.authentication.models import CharacterOwnership
-
-        rows = (
-            CharacterOwnership.objects.filter(character__character_id__in=ids)
-            .values_list(
-                "character__character_id",
-                "user__profile__main_character__character_name",
-            )
-        )
-        return {cid: name for cid, name in rows if name}
-    except Exception:  # pragma: no cover - auth model shape change
-        logger.exception("aa-contracts: main-character resolve failed")
-        return {}
+# Name/main resolution lives in matching (shared with the participation report).
+from .matching import resolve_mains as _resolve_mains  # noqa: E402
+from .matching import resolve_names as _resolve_names  # noqa: E402
 
 
 @shared_task

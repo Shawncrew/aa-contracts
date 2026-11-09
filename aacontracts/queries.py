@@ -73,6 +73,66 @@ def _doctrine_names():
     return dict(Doctrine.objects.values_list("id", "name"))
 
 
+def participation_report() -> dict:
+    """Who is seeding: each main character and the contracts they have up.
+
+    Rows are every member of the suppliers group (the configured ping group),
+    plus any other main character with live alliance contracts, ranked by how
+    many contracts they have up. Each row carries a per-ship-type breakdown.
+    """
+    from collections import Counter
+
+    from . import matching
+
+    cfg = GlobalConfig.get()
+    live = matching.live_contracts()
+    issuer_ids = {c["issuer_id"] for c in live}
+    mains = matching.resolve_mains(issuer_ids)
+    names = matching.resolve_names(issuer_ids)
+    matchers = matching.build_matchers()
+
+    agg: dict = {}
+
+    def bucket(name):
+        return agg.setdefault(name, {"total": 0, "ships": Counter(), "in_group": False})
+
+    # Seed every suppliers-group member's main at zero so non-seeders still show.
+    group = cfg.suppliers_group or cfg.ping_group
+    if group is not None:
+        members = group.user_set.select_related("profile__main_character").all()
+        for user in members:
+            prof = getattr(user, "profile", None)
+            mc = getattr(prof, "main_character", None) if prof else None
+            if mc and mc.character_name:
+                bucket(mc.character_name)["in_group"] = True
+
+    # Tally live contracts by issuer's main, broken down by ship type.
+    for c in live:
+        iid = c["issuer_id"]
+        main = mains.get(iid) or names.get(iid) or f"char {iid}"
+        fit = matching.match_title(c["title"], matchers)
+        ship = fit.match_name if (fit and fit.match_name) else (c["title"] or "Unknown").strip()
+        b = bucket(main)
+        b["total"] += 1
+        b["ships"][ship or "Unknown"] += 1
+
+    participants = [
+        {
+            "main_name": name,
+            "total": v["total"],
+            "in_group": v["in_group"],
+            "ships": [{"name": n, "count": ct} for n, ct in v["ships"].most_common()],
+        }
+        for name, v in agg.items()
+    ]
+    participants.sort(key=lambda p: (-p["total"], p["main_name"].lower()))
+    return {
+        "participants": participants,
+        "total_contracts": len(live),
+        "group_name": group.name if group is not None else None,
+    }
+
+
 def build_report(use_cache=True) -> dict:
     """Per-location, per-doctrine rows with available / target / shortage / price."""
     cfg = GlobalConfig.get()
@@ -107,6 +167,14 @@ def build_report(use_cache=True) -> dict:
         # (NM Hyena / Rokh - Hyena) draws from the same contract pool.
         available = avail.get(_norm(sf.match_name), 0) if sf.match_name else 0
         target = targets.get((loc.id, sf.id), 0)
+        # Tier: ok = at/above target, low = some but short, none = short with
+        # nothing seeded at all. Shared by the dashboard and Discord colouring.
+        if available >= target:
+            tier = "ok"
+        elif available > 0:
+            tier = "low"
+        else:
+            tier = "none"
         return {
             "fit_id": sf.id,
             "hull": sf.hull_name,
@@ -114,6 +182,7 @@ def build_report(use_cache=True) -> dict:
             "available": available,
             "target": target,
             "shortage": max(0, target - available),
+            "tier": tier,
             "price": pricing.final_price(sf, loc_markup),
         }
 

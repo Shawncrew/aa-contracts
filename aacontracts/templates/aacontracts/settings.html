@@ -34,6 +34,15 @@
           </div>
 
           <hr>
+          <h2 class="h6 text-muted text-uppercase">Participation</h2>
+          <div class="mb-3">
+            <label class="form-label">Suppliers group</label>
+            {{ form.suppliers_group }}
+            <div class="form-text">Members are listed on the Participation tab (ranked by contracts up,
+              including those with none). Falls back to the ping group if unset.</div>
+          </div>
+
+          <hr>
           <h2 class="h6 text-muted text-uppercase">Discord status</h2>
           <div class="form-check mb-3">
             {{ form.discord_enabled }}

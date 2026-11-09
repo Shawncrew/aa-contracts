@@ -15,6 +15,43 @@ def _norm(text: str) -> str:
     return _WS.sub(" ", (text or "").strip().lower())
 
 
+def resolve_names(ids):
+    """``eve_id -> name`` for characters/entities, via corptools' name cache."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return {}
+    try:
+        from corptools.models import EveName
+
+        return dict(EveName.objects.filter(eve_id__in=ids).values_list("eve_id", "name"))
+    except Exception:  # pragma: no cover - corptools name model optional
+        return {}
+
+
+def resolve_mains(ids):
+    """``character_id -> main character name`` for characters registered in auth.
+
+    A character is linked to its owner's main via CharacterOwnership; characters
+    not in auth (unregistered alts) are simply absent from the returned map.
+    """
+    ids = [i for i in ids if i]
+    if not ids:
+        return {}
+    try:
+        from allianceauth.authentication.models import CharacterOwnership
+
+        rows = (
+            CharacterOwnership.objects.filter(character__character_id__in=ids)
+            .values_list(
+                "character__character_id",
+                "user__profile__main_character__character_name",
+            )
+        )
+        return {cid: name for cid, name in rows if name}
+    except Exception:  # pragma: no cover - auth model shape change
+        return {}
+
+
 def enabled_doctrine_ids():
     """Doctrine ids globally enabled in the catalog."""
     from .models import DoctrineConfig

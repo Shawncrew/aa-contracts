@@ -1,0 +1,82 @@
+{% extends "allianceauth/base-bs5.html" %}
+{% load humanize %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  {% include "aacontracts/_nav.html" with active="participation" %}
+
+  <div class="d-flex align-items-center justify-content-between flex-wrap mb-3 gap-2">
+    <h1 class="h3 mb-0">{{ page_title }}</h1>
+    <div class="text-muted small">
+      {{ report.total_contracts|intcomma }} contract{{ report.total_contracts|pluralize }} up
+      {% if report.group_name %}· suppliers group: <strong>{{ report.group_name }}</strong>{% endif %}
+    </div>
+  </div>
+
+  {% if not report.group_name %}
+    <div class="alert alert-info py-2">
+      No suppliers group is set, so this lists only people who currently have contracts up.
+      {% if can_manage %}Set the ping group under <a href="{% url 'aacontracts:settings' %}">Settings</a>
+      to include every supplier (even those with none up).{% endif %}
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <table class="table table-sm align-middle mb-0" style="font-variant-numeric: tabular-nums;">
+      <thead class="text-muted small">
+        <tr>
+          <th style="width:3rem;" class="text-end">#</th>
+          <th>Supplier (main)</th>
+          <th style="width:9rem;" class="text-end">Contracts up</th>
+          <th style="width:9rem;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in report.participants %}
+        <tr class="{% if p.total == 0 %}text-muted{% endif %}">
+          <td class="text-end">{{ forloop.counter }}</td>
+          <td>
+            {{ p.main_name }}
+            {% if not p.in_group %}<span class="badge bg-secondary" title="Has contracts up but isn't in the suppliers group">extra</span>{% endif %}
+          </td>
+          <td class="text-end">
+            {% if p.total %}<strong>{{ p.total }}</strong>{% else %}<span class="badge bg-danger">0</span>{% endif %}
+          </td>
+          <td class="text-end">
+            {% if p.ships %}
+            <button class="btn btn-sm btn-outline-secondary" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#part{{ forloop.counter }}"
+                    aria-expanded="false">Ships ▾</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% if p.ships %}
+        <tr class="collapse" id="part{{ forloop.counter }}">
+          <td></td>
+          <td colspan="3">
+            <table class="table table-sm mb-2">
+              <thead class="text-muted small"><tr><th>Ship type</th><th style="width:6rem;" class="text-end">Count</th></tr></thead>
+              <tbody>
+                {% for s in p.ships %}
+                <tr><td>{{ s.name }}</td><td class="text-end">{{ s.count }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+        {% endif %}
+        {% empty %}
+        <tr><td colspan="4" class="text-muted">No suppliers and no contracts up.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="text-muted small mt-3">
+    Contracts are matched to a ship type by title (the longest configured match name wins); unmatched
+    contracts are listed under their raw title. Live alliance contract state from corptools.
+  </p>
+</div>
+{% endblock %}

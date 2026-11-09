@@ -50,7 +50,7 @@
               </thead>
               <tbody>
                 {% for r in doc.rows %}
-                <tr {% if r.shortage %}class="table-danger"{% endif %}>
+                <tr class="{% if r.tier == 'none' %}table-danger{% elif r.tier == 'low' %}table-warning{% endif %}">
                   <td>{{ r.name }}{% if r.hull and r.hull != r.name %}<span class="text-muted small"> · {{ r.hull }}</span>{% endif %}</td>
                   <td class="text-end">{{ r.available }}</td>
                   <td class="text-end">{{ r.target }}</td>

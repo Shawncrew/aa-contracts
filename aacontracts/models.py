@@ -56,6 +56,11 @@ class GlobalConfig(models.Model):
         Group, null=True, blank=True, on_delete=models.SET_NULL,
         help_text="Auth group pinged (via its linked Discord role) when a location is short.",
     )
+    suppliers_group = models.ForeignKey(
+        Group, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        help_text="Auth group whose members are the suppliers listed on the Participation tab "
+                  "(ranked by contracts up, including those with none). Falls back to the ping group.",
+    )
     discord_update_seconds = models.PositiveIntegerField(default=60)
     discord_enabled = models.BooleanField(default=False)
 

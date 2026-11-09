@@ -33,6 +33,17 @@ def index(request):
 
 @login_required
 @permission_required("aacontracts.view_contracts")
+def participation(request):
+    report = queries.participation_report()
+    return render(request, "aacontracts/participation.html", {
+        "page_title": "Contract participation",
+        "report": report,
+        "can_manage": request.user.has_perm("aacontracts.manage_contracts"),
+    })
+
+
+@login_required
+@permission_required("aacontracts.view_contracts")
 def data(request):
     report = queries.build_report()
     out = {"generated": report["generated"], "markup": report["markup"], "locations": []}
