@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from django.core.cache import cache
+from django.db.models import Max, Min, Value
+from django.db.models.functions import NullIf
 from django.utils import timezone
 
 from . import app_settings, pricing
@@ -165,8 +167,7 @@ def _tally_by_main(contracts):
 
     for c in contracts:
         iid = c["issuer_id"]
-        # issuer_id 0 = EVE never recorded the issuer (contracts synced before
-        # corptools began capturing it, ~Aug 2026). Pool them as "Unknown".
+        # Pool contracts with no reliable issuer as "Unknown".
         main = "Unknown" if not iid else (mains.get(iid) or names.get(iid) or f"char {iid}")
         fit = matching.match_title(c["title"], matchers)
         ship = fit.match_name if (fit and fit.match_name) else (c["title"] or "Unknown").strip()
@@ -211,11 +212,24 @@ def participation_historical(days=None) -> dict:
     if days is not None:
         qs = qs.filter(date_completed__gte=timezone.now() - timedelta(days=days))
 
-    # Dedupe corp copies: one row per real contract (shared id/issuer/title).
-    contracts = [
-        {"issuer_id": iid, "title": title}
-        for _cid, iid, title in qs.values_list("contract_id", "issuer_id", "title").distinct()
-    ]
+    # Older CorpTools rows may have a zero issuer_id but retain the EVE
+    # character ID in issuer_name_id. Prefer a numeric ID from any copy.
+    rows = qs.order_by().values("contract_id").annotate(
+        title=Min(NullIf("title", Value(""))),
+        first_issuer=Min(NullIf("issuer_id", Value(0))),
+        last_issuer=Max("issuer_id"),
+        first_saved_issuer=Min(NullIf("issuer_name_id", Value(0))),
+        last_saved_issuer=Max("issuer_name_id"),
+    )
+    contracts = []
+    for row in rows:
+        issuer = 0
+        if row["first_issuer"] is not None:
+            if row["first_issuer"] == row["last_issuer"]:
+                issuer = row["first_issuer"]
+        elif row["first_saved_issuer"] == row["last_saved_issuer"]:
+            issuer = row["first_saved_issuer"] or 0
+        contracts.append({"issuer_id": issuer, "title": row["title"] or ""})
     participants, group_name = _tally_by_main(contracts)
     return {
         "participants": participants,
