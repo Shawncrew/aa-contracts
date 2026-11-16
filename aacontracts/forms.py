@@ -14,6 +14,7 @@ class GlobalConfigForm(forms.ModelForm):
             "discord_channel_id",
             "ping_group",
             "discord_update_seconds",
+            "fitting_ping_groups",
         ]
         widgets = {
             "price_markup_percent": forms.NumberInput(attrs={"class": "form-control", "step": "0.1"}),
@@ -22,7 +23,16 @@ class GlobalConfigForm(forms.ModelForm):
             "discord_channel_id": forms.NumberInput(attrs={"class": "form-control"}),
             "ping_group": forms.Select(attrs={"class": "form-select"}),
             "discord_update_seconds": forms.NumberInput(attrs={"class": "form-control"}),
+            "fitting_ping_groups": forms.SelectMultiple(attrs={"class": "form-select", "size": 8}),
         }
+
+    def clean_fitting_ping_groups(self):
+        groups = self.cleaned_data["fitting_ping_groups"]
+        # A role mention can take up 25 characters, including its separator.
+        # Keep the mentions within one 2,000-character Discord message.
+        if len(groups) > 80:
+            raise forms.ValidationError("Select up to 80 fitting update ping groups.")
+        return groups
 
 
 class LocationForm(forms.ModelForm):

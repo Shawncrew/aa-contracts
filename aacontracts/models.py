@@ -56,6 +56,11 @@ class GlobalConfig(models.Model):
         Group, null=True, blank=True, on_delete=models.SET_NULL,
         help_text="Auth group pinged (via its linked Discord role) when a location is short.",
     )
+    fitting_ping_groups = models.ManyToManyField(
+        Group, blank=True, related_name="+",
+        verbose_name="Fitting update ping groups",
+        help_text="Ping the same-named Discord roles on fitting updates. Leave empty to post quietly.",
+    )
     suppliers_group = models.ForeignKey(
         Group, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
         help_text="Auth group whose members are the suppliers listed on the Participation tab "

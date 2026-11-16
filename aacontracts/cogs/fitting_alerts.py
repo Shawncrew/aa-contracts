@@ -1,4 +1,5 @@
 """Publish queued fitting revisions to the configured Discord channel."""
+from collections import Counter
 from io import BytesIO
 import logging
 
@@ -11,7 +12,7 @@ from eve_sde.models import ItemType
 
 from .. import app_settings
 from ..fitting_alerts import item_changes, seed_snapshots
-from ..models import FittingChange
+from ..models import FittingChange, GlobalConfig
 
 logger = logging.getLogger(__name__)
 _SECTION_NAMES = {
@@ -36,7 +37,18 @@ def pending_changes(channel_id):
 
 
 @sync_to_async
-def render_change(change):
+def ping_group_names():
+    return set(GlobalConfig.get().fitting_ping_groups.values_list("name", flat=True))
+
+
+def fitting_ping_roles(guild, names):
+    candidates = [role for role in guild.roles if role.id != guild.id and role.name in names]
+    counts = Counter(role.name for role in candidates)
+    return [role for role in candidates if counts[role.name] == 1]
+
+
+@sync_to_async
+def render_change(change, role_mentions=""):
     doctrines = change.fitting.doctrines.order_by("name").values_list("name", flat=True)
     changes = list(item_changes(change.before, change.after))
     names = dict(ItemType.objects.filter(
@@ -60,9 +72,11 @@ def render_change(change):
         name = names.get(type_id, f"Item {type_id}")
         details.append(f"• {section}: {escape(name)} {old_quantity} → {new_quantity}")
     full_text = "\n".join(header + details)
-    if len(full_text) <= 1950:
-        return full_text, None
-    return "\n".join([header[0], header[-1], "See the attachment for the full change."]), full_text
+    prefix = f"{role_mentions}\n" if role_mentions else ""
+    if len(prefix + full_text) <= 1950:
+        return prefix + full_text, None
+    summary = prefix + "\n".join([header[0], header[-1], "See the attachment for the full change."])
+    return summary if len(summary) <= 2000 else role_mentions, full_text
 
 
 class FittingAlerts(commands.Cog):
@@ -81,9 +95,12 @@ class FittingAlerts(commands.Cog):
             if not pending:
                 return
             channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+            roles = fitting_ping_roles(channel.guild, await ping_group_names())
+            role_mentions = " ".join(role.mention for role in roles)
+            allowed = discord.AllowedMentions(everyone=False, users=False, roles=roles, replied_user=False)
             for change in pending:
-                content, attachment = await render_change(change)
-                kwargs = {"allowed_mentions": discord.AllowedMentions.none()}
+                content, attachment = await render_change(change, role_mentions)
+                kwargs = {"allowed_mentions": allowed}
                 if attachment:
                     kwargs["file"] = discord.File(
                         BytesIO(attachment.encode("utf-8")), filename=f"fitting-change-{change.pk}.txt",

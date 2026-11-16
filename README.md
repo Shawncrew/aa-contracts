@@ -103,7 +103,9 @@ fits and fits outside the Contracts catalog. Its first pass records a baseline
 without posting. Later saves of existing fits produce one queued diff
 for meaningful changes, including modules, rigs, drones, fighters, cargo, and
 renames. Description edits get a note without copying the description to
-Discord. The feed posts no mentions. It picks up edits through the normal AA
+Discord. In Contracts Settings, select **Fitting update ping groups** to mention
+the matching Discord roles on every fitting update. An empty selection posts
+quietly. It picks up edits through the normal AA
 Fittings save path. New fits establish a baseline, and doctrine membership
 changes alone do not publish an alert.
 
