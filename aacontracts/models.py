@@ -83,6 +83,27 @@ class GlobalConfig(models.Model):
         return "Contracts configuration"
 
 
+class FittingSnapshot(models.Model):
+    """Last observed state of a fit in the Discord feed."""
+
+    fitting = models.OneToOneField("fittings.Fitting", primary_key=True, on_delete=models.CASCADE)
+    state = models.JSONField()
+
+
+class FittingChange(models.Model):
+    """A committed fitting change awaiting Discord delivery or already delivered."""
+
+    fitting = models.ForeignKey("fittings.Fitting", on_delete=models.CASCADE)
+    channel_id = models.PositiveBigIntegerField()
+    before = models.JSONField()
+    after = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    message_id = models.PositiveBigIntegerField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["channel_id", "message_id", "id"], name="aac_fit_change_pending")]
+
+
 class DoctrineConfig(models.Model):
     """Global on/off for an aa-fittings doctrine.
 

@@ -86,6 +86,27 @@ The Discord cog enqueues the heavy work (price refresh, report build, fit verifi
 cycle, so with the cog enabled no cron is required. To also run it without Discord, add a beat
 schedule for `aacontracts.tasks.update_status`, or run the management commands from cron.
 
+### Discord fitting updates
+
+Apply the aa-contracts migrations, then set these values in Alliance Auth's `local.py`:
+
+```python
+AACONTRACTS_FITTING_ALERT_CHANNEL_ID = 123456789012345678  # Discord channel ID
+```
+
+Use a channel whose members are allowed to see updates to every AA fitting. The bot
+needs View Channel, Send Messages, and Attach Files. Restart the Auth web,
+worker, and Discord bot processes with the new code and settings.
+
+Setting the channel ID enables the feed for every fitting, including standalone
+fits and fits outside the Contracts catalog. Its first pass records a baseline
+without posting. Later saves of existing fits produce one queued diff
+for meaningful changes, including modules, rigs, drones, fighters, cargo, and
+renames. Description edits get a note without copying the description to
+Discord. The feed posts no mentions. It picks up edits through the normal AA
+Fittings save path. New fits establish a baseline, and doctrine membership
+changes alone do not publish an alert.
+
 ## Permissions
 
 | Codename | Grants |

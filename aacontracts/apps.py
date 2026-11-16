@@ -8,3 +8,6 @@ class AaContractsConfig(AppConfig):
     label = "aacontracts"
     verbose_name = f"Contracts v{__version__}"
     default_auto_field = "django.db.models.BigAutoField"
+
+    def ready(self):
+        from . import fitting_alerts  # noqa: F401

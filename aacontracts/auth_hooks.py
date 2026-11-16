@@ -31,4 +31,7 @@ def register_urls():
 
 @hooks.register("discord_cogs_hook")
 def register_cogs():
-    return app_settings.AACONTRACTS_DISCORD_BOT_COGS
+    cogs = list(app_settings.AACONTRACTS_DISCORD_BOT_COGS)
+    if app_settings.AACONTRACTS_FITTING_ALERT_CHANNEL_ID:
+        cogs.append("aacontracts.cogs.fitting_alerts")
+    return cogs

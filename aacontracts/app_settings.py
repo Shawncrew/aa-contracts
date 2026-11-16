@@ -58,3 +58,6 @@ AACONTRACTS_DEFAULT_DISCORD_CHANNEL_ID = getattr(
 AACONTRACTS_DISCORD_BOT_COGS = getattr(
     settings, "AACONTRACTS_DISCORD_BOT_COGS", ["aacontracts.cogs.status"]
 )
+
+# A channel ID enables updates for every fitting in AA Fittings.
+AACONTRACTS_FITTING_ALERT_CHANNEL_ID = getattr(settings, "AACONTRACTS_FITTING_ALERT_CHANNEL_ID", None)
