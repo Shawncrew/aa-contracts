@@ -9,15 +9,17 @@
   <style>
     .fitting-ping-settings { min-inline-size: 0; }
     .fitting-ping-picker {
-      --border-color: var(--bs-border-color);
+      --picker-surface: color-mix(in srgb, var(--bs-body-color) 7%, var(--bs-body-bg));
+      --picker-chosen-surface: color-mix(in srgb, var(--bs-body-color) 12%, var(--bs-body-bg));
+      --border-color: color-mix(in srgb, var(--bs-body-color) 48%, var(--bs-body-bg));
       --body-quiet-color: var(--bs-body-color);
-      --darkened-bg: var(--bs-tertiary-bg);
-      --secondary: var(--bs-secondary-bg);
-      --selected-bg: var(--bs-tertiary-bg);
+      --darkened-bg: var(--picker-surface);
+      --secondary: var(--picker-surface);
+      --selected-bg: var(--picker-chosen-surface);
       --header-link-color: var(--bs-body-color);
-      --primary: var(--bs-secondary-bg);
+      --primary: var(--picker-chosen-surface);
       --breadcrumbs-fg: var(--bs-body-color);
-      --link-fg: var(--bs-link-color);
+      --link-fg: var(--bs-body-color);
     }
     .fitting-ping-picker .selector-available,
     .fitting-ping-picker .selector-chosen,
@@ -30,7 +32,7 @@
       box-sizing: border-box;
       background-color: var(--bs-body-bg);
       color: var(--bs-body-color);
-      border: 1px solid var(--bs-border-color);
+      border: 1px solid var(--border-color);
     }
   </style>
 {% endblock %}
