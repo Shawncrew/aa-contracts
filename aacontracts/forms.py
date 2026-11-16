@@ -1,4 +1,5 @@
 from django import forms
+from django.contrib.admin.widgets import FilteredSelectMultiple
 
 from .models import GlobalConfig, Location
 
@@ -23,7 +24,7 @@ class GlobalConfigForm(forms.ModelForm):
             "discord_channel_id": forms.NumberInput(attrs={"class": "form-control"}),
             "ping_group": forms.Select(attrs={"class": "form-select"}),
             "discord_update_seconds": forms.NumberInput(attrs={"class": "form-control"}),
-            "fitting_ping_groups": forms.SelectMultiple(attrs={"class": "form-select", "size": 8}),
+            "fitting_ping_groups": FilteredSelectMultiple("ping groups", is_stacked=False),
         }
 
     def clean_fitting_ping_groups(self):

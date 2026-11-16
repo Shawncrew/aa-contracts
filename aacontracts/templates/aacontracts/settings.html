@@ -1,6 +1,45 @@
 {% extends "allianceauth/base-bs5.html" %}
+{% load static %}
 
 {% block page_title %}{{ page_title }}{% endblock %}
+
+{% block extra_css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/widgets.css' %}">
+  <style>
+    .fitting-ping-settings { min-inline-size: 0; }
+    .fitting-ping-picker {
+      --border-color: var(--bs-border-color);
+      --body-quiet-color: var(--bs-body-color);
+      --darkened-bg: var(--bs-tertiary-bg);
+      --secondary: var(--bs-secondary-bg);
+      --selected-bg: var(--bs-tertiary-bg);
+      --header-link-color: var(--bs-body-color);
+      --primary: var(--bs-secondary-bg);
+      --breadcrumbs-fg: var(--bs-body-color);
+      --link-fg: var(--bs-link-color);
+    }
+    .fitting-ping-picker .selector-available,
+    .fitting-ping-picker .selector-chosen,
+    .fitting-ping-picker .selector-filter input { min-width: 0; }
+    .fitting-ping-picker .selector-filter input { width: 0; }
+    .fitting-ping-picker .selector ul.selector-chooser { flex: 0 0 30px; }
+    .fitting-ping-picker .selectfilter { width: 100%; min-height: 12rem; }
+    .fitting-ping-picker select,
+    .fitting-ping-picker input {
+      box-sizing: border-box;
+      background-color: var(--bs-body-bg);
+      color: var(--bs-body-color);
+      border: 1px solid var(--bs-border-color);
+    }
+  </style>
+{% endblock %}
+
+{% block extra_javascript %}
+  {{ block.super }}
+  <script src="{% url 'aacontracts:settings_jsi18n' %}"></script>
+  {{ form.media.js }}
+{% endblock %}
 
 {% block content %}
 <div class="container-fluid p-0">
@@ -63,12 +102,12 @@
           </div>
           <hr>
           <h2 class="h6 text-muted text-uppercase">Discord fitting updates</h2>
-          <div class="mb-3">
-            <label class="form-label" for="{{ form.fitting_ping_groups.id_for_label }}">{{ form.fitting_ping_groups.label }}</label>
-            {{ form.fitting_ping_groups }}
+          <fieldset class="fitting-ping-settings mb-3">
+            <legend class="form-label fs-6">{{ form.fitting_ping_groups.label }}</legend>
+            <div class="fitting-ping-picker">{{ form.fitting_ping_groups }}</div>
             {{ form.fitting_ping_groups.errors }}
             <div class="form-text">{{ form.fitting_ping_groups.help_text }}</div>
-          </div>
+          </fieldset>
         </div>
         <div class="card-footer text-end">
           <button class="btn btn-primary btn-sm" type="submit">Save settings</button>
