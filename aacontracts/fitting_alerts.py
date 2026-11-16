@@ -32,9 +32,10 @@ def item_changes(before, after):
     old = {(flag, type_id): quantity for flag, type_id, quantity in before["items"]}
     new = {(flag, type_id): quantity for flag, type_id, quantity in after["items"]}
     for flag, type_id in sorted(old.keys() | new.keys()):
-        delta = new.get((flag, type_id), 0) - old.get((flag, type_id), 0)
-        if delta:
-            yield flag, type_id, delta
+        old_quantity = old.get((flag, type_id), 0)
+        new_quantity = new.get((flag, type_id), 0)
+        if old_quantity != new_quantity:
+            yield flag, type_id, old_quantity, new_quantity
 
 
 def capture(fitting_id, *, using="default"):

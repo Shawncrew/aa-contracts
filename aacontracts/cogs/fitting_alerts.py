@@ -40,7 +40,7 @@ def render_change(change):
     doctrines = change.fitting.doctrines.order_by("name").values_list("name", flat=True)
     changes = list(item_changes(change.before, change.after))
     names = dict(ItemType.objects.filter(
-        pk__in={type_id for _, type_id, _ in changes},
+        pk__in={type_id for _, type_id, _, _ in changes},
     ).values_list("pk", "name_en"))
     escape = discord.utils.escape_markdown
     header = [
@@ -55,10 +55,10 @@ def render_change(change):
         details.append(f"Renamed from {escape(change.before['name'])}")
     if change.before["description"] != change.after["description"]:
         details.append("Description updated")
-    for flag, type_id, delta in changes:
+    for flag, type_id, old_quantity, new_quantity in changes:
         section = _SECTION_NAMES.get(flag, flag)
         name = names.get(type_id, f"Item {type_id}")
-        details.append(f"• {section}: {delta:+d} {escape(name)}")
+        details.append(f"• {section}: {escape(name)} {old_quantity} → {new_quantity}")
     full_text = "\n".join(header + details)
     if len(full_text) <= 1950:
         return full_text, None
