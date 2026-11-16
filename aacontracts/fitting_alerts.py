@@ -9,6 +9,7 @@ from django.dispatch import receiver
 from fittings.models import Fitting
 
 from . import app_settings
+from .middleware import fitting_editor_name
 from .models import FittingChange, FittingSnapshot
 
 logger = logging.getLogger(__name__)
@@ -54,9 +55,12 @@ def capture(fitting_id, *, using="default"):
         if created or previous.state == current:
             return
 
+        # Editor attribution belongs to the notification, not the fit state
+        # used to detect changes.
+        editor = fitting_editor_name(fitting_id)
         FittingChange.objects.using(using).create(
             fitting_id=fitting_id, channel_id=channel_id,
-            before=previous.state, after=current,
+            before=previous.state, after={**current, "edited_by": editor} if editor else current,
         )
         previous.state = current
         previous.save(using=using, update_fields=["state"])

@@ -82,6 +82,10 @@ def render_change(change, role_mentions=""):
             details = update_details(change, escape)
 
     header = [f"**{title}: {escape(state['name'])}**"]
+    if change.before is not None and change.after is not None:
+        editor = change.after.get("edited_by") or "Unavailable"
+        header.append(f"Edited by: {discord.utils.escape_mentions(escape(editor))}")
+    summary_header = header.copy()
     if fit is not None:
         doctrines = fit.doctrines.order_by("name").values_list("name", flat=True)
         if doctrines:
@@ -92,7 +96,7 @@ def render_change(change, role_mentions=""):
     prefix = f"{role_mentions}\n" if role_mentions else ""
     if len(prefix + full_text) <= 1950:
         return prefix + full_text, None
-    summary = prefix + "\n".join([header[0], *fit_link, "See the attachment for the full change."])
+    summary = prefix + "\n".join([*summary_header, *fit_link, "See the attachment for the full change."])
     return summary if len(summary) <= 2000 else role_mentions, full_text
 
 
