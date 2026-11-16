@@ -4,7 +4,7 @@ import logging
 import re
 
 from django.db import DatabaseError, transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
 from fittings.models import Fitting
 
@@ -69,13 +69,45 @@ def seed_snapshots():
         capture(fitting_id)
 
 
+def record_lifecycle_change(fitting_id, name, channel_id, *, using, added):
+    state = {"name": name}
+    FittingChange.objects.using(using).create(
+        fitting_id=fitting_id, channel_id=channel_id,
+        before=None if added else state, after=state if added else None,
+    )
+
+
 @receiver(post_save, sender="fittings.Fitting", dispatch_uid="aacontracts.capture_fitting_alert")
 def fitting_saved(sender, instance, created, raw, using, **kwargs):
-    # AA Fittings saves a new fit before populating items, but saves an edit
-    # after replacing its items. Let the baseline scan pick up new fits.
-    if created or raw:
+    channel_id = app_settings.AACONTRACTS_FITTING_ALERT_CHANNEL_ID
+    if raw or not channel_id:
         return
     try:
-        capture(instance.pk, using=using)
+        if created:
+            # AA Fittings adds items after the initial save. Announce the name
+            # now and let the baseline scan capture the fit's items.
+            with transaction.atomic(using=using):
+                record_lifecycle_change(instance.pk, instance.name, channel_id, using=using, added=True)
+        else:
+            capture(instance.pk, using=using)
     except DatabaseError:
         logger.exception("Could not capture Discord alert for fitting %s", instance.pk)
+
+
+@receiver(pre_delete, sender="fittings.Fitting", dispatch_uid="aacontracts.capture_fitting_removal")
+def fitting_deleting(sender, instance, using, **kwargs):
+    channel_id = app_settings.AACONTRACTS_FITTING_ALERT_CHANNEL_ID
+    if not channel_id:
+        return
+    try:
+        # Django runs pre_delete inside the delete transaction. Lock the
+        # fitting so concurrent deletes cannot both queue the same removal.
+        with transaction.atomic(using=using):
+            name = (
+                sender.objects.using(using).select_for_update()
+                .filter(pk=instance.pk).values_list("name", flat=True).first()
+            )
+            if name is not None:
+                record_lifecycle_change(instance.pk, name, channel_id, using=using, added=False)
+    except DatabaseError:
+        logger.exception("Could not capture Discord removal alert for fitting %s", instance.pk)

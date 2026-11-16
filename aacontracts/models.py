@@ -58,8 +58,8 @@ class GlobalConfig(models.Model):
     )
     fitting_ping_groups = models.ManyToManyField(
         Group, blank=True, related_name="+",
-        verbose_name="Fitting update ping groups",
-        help_text="Ping the same-named Discord roles on fitting updates. Leave empty to post quietly.",
+        verbose_name="Fitting alert ping groups",
+        help_text="Ping the same-named Discord roles when fits are added, updated, or removed. Leave empty to post quietly.",
     )
     suppliers_group = models.ForeignKey(
         Group, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
@@ -98,10 +98,11 @@ class FittingSnapshot(models.Model):
 class FittingChange(models.Model):
     """A committed fitting change awaiting Discord delivery or already delivered."""
 
-    fitting = models.ForeignKey("fittings.Fitting", on_delete=models.CASCADE)
+    # Keep the fitting ID and alert history after a fit is deleted.
+    fitting_id = models.PositiveBigIntegerField()
     channel_id = models.PositiveBigIntegerField()
-    before = models.JSONField()
-    after = models.JSONField()
+    before = models.JSONField(null=True)
+    after = models.JSONField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     message_id = models.PositiveBigIntegerField(null=True, blank=True)
 

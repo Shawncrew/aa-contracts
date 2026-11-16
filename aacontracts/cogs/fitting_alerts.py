@@ -1,4 +1,4 @@
-"""Publish queued fitting revisions to the configured Discord channel."""
+"""Publish queued fitting changes to the configured Discord channel."""
 from collections import Counter
 from io import BytesIO
 import logging
@@ -9,6 +9,7 @@ from discord.ext import commands, tasks
 from django.conf import settings
 from django.urls import reverse
 from eve_sde.models import ItemType
+from fittings.models import Fitting
 
 from .. import app_settings
 from ..fitting_alerts import item_changes, seed_snapshots
@@ -33,7 +34,7 @@ def pending_changes(channel_id):
     seed_snapshots()
     return list(FittingChange.objects.filter(
         channel_id=channel_id, message_id__isnull=True,
-    ).select_related("fitting").order_by("id")[:20])
+    ).order_by("id")[:20])
 
 
 @sync_to_async
@@ -47,21 +48,11 @@ def fitting_ping_roles(guild, names):
     return [role for role in candidates if counts[role.name] == 1]
 
 
-@sync_to_async
-def render_change(change, role_mentions=""):
-    doctrines = change.fitting.doctrines.order_by("name").values_list("name", flat=True)
+def update_details(change, escape):
     changes = list(item_changes(change.before, change.after))
     names = dict(ItemType.objects.filter(
         pk__in={type_id for _, type_id, _, _ in changes},
     ).values_list("pk", "name_en"))
-    escape = discord.utils.escape_markdown
-    header = [
-        f"**Fitting updated: {escape(change.after['name'])}**",
-    ]
-    if doctrines:
-        header.append("Doctrines: " + ", ".join(map(escape, doctrines)))
-    path = reverse("fittings:view_fit", args=[change.fitting_id])
-    header.append(f"Open in Alliance Auth: <{settings.SITE_URL.rstrip('/')}{path}>")
     details = []
     if change.before["name"] != change.after["name"]:
         details.append(f"Renamed from {escape(change.before['name'])}")
@@ -71,11 +62,37 @@ def render_change(change, role_mentions=""):
         section = _SECTION_NAMES.get(flag, flag)
         name = names.get(type_id, f"Item {type_id}")
         details.append(f"• {section}: {escape(name)} {old_quantity} → {new_quantity}")
-    full_text = "\n".join(header + details)
+    return details
+
+
+@sync_to_async
+def render_change(change, role_mentions=""):
+    escape = discord.utils.escape_markdown
+    details = []
+    fit_link = []
+    if change.after is None:
+        title = "Fitting removed"
+        state = change.before
+        fit = None
+    else:
+        title = "Fitting added" if change.before is None else "Fitting updated"
+        state = change.after
+        fit = Fitting.objects.filter(pk=change.fitting_id).first()
+        if change.before is not None:
+            details = update_details(change, escape)
+
+    header = [f"**{title}: {escape(state['name'])}**"]
+    if fit is not None:
+        doctrines = fit.doctrines.order_by("name").values_list("name", flat=True)
+        if doctrines:
+            header.append("Doctrines: " + ", ".join(map(escape, doctrines)))
+        path = reverse("fittings:view_fit", args=[change.fitting_id])
+        fit_link.append(f"Open in Alliance Auth: <{settings.SITE_URL.rstrip('/')}{path}>")
+    full_text = "\n".join(header + fit_link + details)
     prefix = f"{role_mentions}\n" if role_mentions else ""
     if len(prefix + full_text) <= 1950:
         return prefix + full_text, None
-    summary = prefix + "\n".join([header[0], header[-1], "See the attachment for the full change."])
+    summary = prefix + "\n".join([header[0], *fit_link, "See the attachment for the full change."])
     return summary if len(summary) <= 2000 else role_mentions, full_text
 
 
