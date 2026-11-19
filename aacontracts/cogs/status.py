@@ -14,8 +14,13 @@ exceeding the ~2000-char message limit) and tracked in the DiscordMessage model
 so each message is edited in place. Heavy work runs in Celery
 (``tasks.update_status``); the cog renders the cached results.
 """
+import base64
 from datetime import timedelta
 import logging
+import re
+from time import monotonic
+
+import aiohttp
 
 import discord
 from asgiref.sync import sync_to_async
@@ -94,7 +99,7 @@ def _tier(available, target):
     return "🔴"
 
 
-def _location_lines(entry):
+def _location_lines(entry, doctrine_icons=None):
     shown = [
         r
         for doc in entry["doctrines"]
@@ -117,7 +122,11 @@ def _location_lines(entry):
         rows = [r for r in doc["rows"] if r["target"] > 0 or r["available"] > 0]
         if not rows:
             continue
-        lines.append(f"**{doc['doctrine_name']}**")
+        title = discord.utils.escape_mentions(discord.utils.escape_markdown(doc["doctrine_name"]))
+        # Prevent numbered doctrine names from becoming Discord lists with extra spacing.
+        title = re.sub(r"^(\d+)\.", r"\1\\.", title)
+        icon = (doctrine_icons or {}).get(doc["doctrine_id"], "")
+        lines.extend(["", f"{icon} **{title}**".strip()])
         for r in rows:
             flag = _tier(r["available"], r["target"])
             price = _fmt_isk_m(r.get("price"))
@@ -129,15 +138,33 @@ def _location_lines(entry):
 
 
 @sync_to_async
-def _location_sections():
+def _location_sections(doctrine_icons=None):
     from ..models import Location
 
     report = _get_report()
     enabled = {loc.id for loc in Location.objects.filter(enabled=True)}
     return [
-        (f"loc:{e['id']}", _location_lines(e))
+        (f"loc:{e['id']}", _location_lines(e, doctrine_icons))
         for e in report["locations"] if e["id"] in enabled
     ]
+
+
+@sync_to_async
+def _doctrine_icon_types():
+    from fittings.models import Doctrine
+
+    icons = {}
+    for doctrine_id, url in Doctrine.objects.filter(
+        locationdoctrine__enabled=True, locationdoctrine__location__enabled=True,
+    ).distinct().values_list("pk", "icon_url"):
+        match = re.fullmatch(
+            r"https://images\.evetech\.net/types/([1-9][0-9]*)/(?:render|icon)(?:\?[^#]*)?",
+            url or "",
+        )
+        if match:
+            icons[doctrine_id] = int(match[1])
+    return icons
+
 
 
 @sync_to_async
@@ -332,6 +359,8 @@ class ContractsStatus(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._interval_set = False
+        self._ship_emojis = {}
+        self._emoji_retry_after = 0
         self.refresh.start()
 
     def cog_unload(self):
@@ -347,6 +376,40 @@ class ContractsStatus(commands.Cog):
     @refresh.before_loop
     async def _before(self):
         await self.bot.wait_until_ready()
+
+    async def _doctrine_icons(self):
+        """Reuse the doctrine's AA ship image as a small application-owned emoji."""
+        types = await _doctrine_icon_types()
+        missing = set(types.values()) - self._ship_emojis.keys()
+        if missing and monotonic() >= self._emoji_retry_after:
+            try:
+                route = "/applications/{application_id}/emojis"
+                params = {"application_id": self.bot.application_id}
+                result = await self.bot.http.request(discord.http.Route("GET", route, **params))
+                existing = {e["name"]: e for e in result["items"]}
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                    for type_id in sorted(missing):
+                        name = f"aa_ship_{type_id}"
+                        emoji = existing.get(name)
+                        if emoji is None:
+                            async with session.get(
+                                f"https://images.evetech.net/types/{type_id}/render?size=128",
+                            ) as response:
+                                response.raise_for_status()
+                                image = await response.read()
+                            if len(image) > 256 * 1024 or not image.startswith(b"\x89PNG\r\n\x1a\n"):
+                                raise ValueError("Invalid ship emoji image")
+                            emoji = await self.bot.http.request(
+                                discord.http.Route("POST", route, **params),
+                                json={"name": name, "image": "data:image/png;base64," + base64.b64encode(image).decode("ascii")},
+                            )
+                        self._ship_emojis[type_id] = f"<:{emoji['name']}:{emoji['id']}>"
+            except Exception:
+                # Icon failures must never block stock updates or supplier alerts.
+                self._emoji_retry_after = monotonic() + 3600
+                logger.exception("aa-contracts: could not load doctrine ship icons")
+        return {doc_id: self._ship_emojis[type_id] for doc_id, type_id in types.items() if type_id in self._ship_emojis}
+
 
     async def _sync_section(self, channel, section, chunks, allowed, recreate=False, recipients=None):
         """Make the section's messages match ``chunks`` (edit, add, or remove)."""
@@ -438,7 +501,8 @@ class ContractsStatus(commands.Cog):
 
         # 1. Per-location blocks.
         active = set()
-        for key, lines in await _location_sections():
+        doctrine_icons = await self._doctrine_icons()
+        for key, lines in await _location_sections(doctrine_icons):
             active.add(key)
             try:
                 await self._sync_section(channel, key, _pack(lines), allowed)
