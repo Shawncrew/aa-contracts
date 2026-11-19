@@ -72,12 +72,23 @@ def verify_fits_task():
     names = _resolve_names(issuer_ids)
     mains = _resolve_mains(issuer_ids)
 
+    from .module_equivalences import load_module_equivalences
+
+    fits_by_id = {fit.pk: fit for _, fit in matched}
+    expected_by_fit = {pk: catalog.expected_items(fit) for pk, fit in fits_by_id.items()}
+    type_ids = set()
+    for counts in [*expected_by_fit.values(), *item_counts.values()]:
+        type_ids.update(counts)
+    equivalences = load_module_equivalences(type_ids)
+
     mismatches = []
     for c, fit in matched:
         counts = item_counts.get(c["contract_id"])
         if not counts:
             continue  # items not synced yet — can't verify, don't alert
-        ok, detail = catalog.verify_contract_items(counts, fit)
+        ok, detail = catalog.verify_contract_items(
+            counts, fit, expected=expected_by_fit[fit.pk], equivalences=equivalences,
+        )
         if ok:
             continue
         mismatches.append({

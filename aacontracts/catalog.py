@@ -105,24 +105,26 @@ def expected_items(fit: ShipFit) -> dict[int, int]:
     }
 
 
-def verify_contract_items(contract_counts: dict[int, int], fit: ShipFit):
+def verify_contract_items(contract_counts: dict[int, int], fit: ShipFit, *, expected=None, equivalences=None):
     """Compare a contract's included items against the fit.
 
     ``contract_counts`` is ``type_id -> quantity`` of the contract's included
-    items. Returns ``(ok, detail)`` where detail names the first few
-    discrepancies, or "" when they match.
+    items. Stat-equivalent module variants satisfy the same requirement.
+    Returns ``(ok, detail)`` where detail names the first few discrepancies,
+    or "" when they match.
     """
     from eveuniverse.models import EveType
 
     # Only flag required fit items the contract is MISSING. Extras (loaded ammo,
     # spare cargo, boosters) are normal in a contract and not a fault; a wrong or
     # swapped module still surfaces here as the correct item being missing.
-    expected = expected_items(fit)
-    missing = {}
-    for tid, qty in expected.items():
-        have = contract_counts.get(tid, 0)
-        if have < qty:
-            missing[tid] = qty - have
+    from .module_equivalences import load_module_equivalences
+
+    if expected is None:
+        expected = expected_items(fit)
+    if equivalences is None:
+        equivalences = load_module_equivalences(set(expected) | set(contract_counts))
+    missing = equivalences.missing_items(expected, contract_counts)
 
     if not missing:
         return True, ""

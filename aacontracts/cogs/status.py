@@ -6,8 +6,8 @@ Channel layout (top to bottom), persistent and edited each cycle:
    doctrine, each on its own line (🔴/🟢  avail/target  name). No pings.
 2. A **shortage summary** — one short ship per line, grouped by location; pings
    the configured group when a new shortage appears.
-3. A **fit-mismatch alerts** block — one contract per line, issuer by name only
-   (no @-ping for now).
+3. A **fit-mismatch alerts** block — names and linked Discord mentions. New
+   mismatches rebuild this block and notify their owners once.
 
 Every block is wrapped across as many Discord messages as it needs (never
 exceeding the ~2000-char message limit) and tracked in the DiscordMessage model
@@ -171,18 +171,70 @@ def _alerts_lines():
     from ..models import FitAlert
 
     alerts = list(FitAlert.objects.select_related("ship_fit", "location"))
-    if not alerts:
-        return []
-    lines = ["⚠️ **Contract fit mismatches** — please fix or recontract:", ""]
+    recipients = _mismatch_recipients(alerts)
+    lines = ["⚠️ **Contract fit mismatches** — please fix or recontract:", ""] if alerts else []
     for a in alerts:
-        # Show the issuer's main character (no @-ping yet); fall back to the
-        # issuing character, then the raw id if the issuer isn't in auth.
-        who = a.main_name or a.issuer_name or f"char {a.issuer_id}"
+        who = discord.utils.escape_mentions(discord.utils.escape_markdown(
+            a.main_name or a.issuer_name or f"char {a.issuer_id}"
+        ))
+        if a.contract_id in recipients:
+            who += f" <@{recipients[a.contract_id]}>"
         loc = f" @ {a.location.name}" if a.location else ""
         price = _fmt_isk_m(a.ship_fit.effective_price) if a.ship_fit else ""
         price_str = f"  ·  {price}" if price else ""
         lines.append(f"• {who} — `{a.title}`{loc}: {a.detail}{price_str}")
-    return lines
+    return lines, recipients
+
+
+def _mismatch_recipients(alerts):
+    from allianceauth.authentication.models import CharacterOwnership
+    from allianceauth.services.modules.discord.models import DiscordUser
+
+    owners = dict(CharacterOwnership.objects.filter(
+        character__character_id__in={a.issuer_id for a in alerts},
+        user__is_active=True, user__profile__main_character__isnull=False,
+    ).values_list("character__character_id", "user_id"))
+    discord_ids = dict(DiscordUser.objects.filter(
+        user_id__in=set(owners.values()), uid__gt=0,
+    ).values_list("user_id", "uid"))
+    return {
+        alert.contract_id: discord_ids[owners[alert.issuer_id]]
+        for alert in alerts
+        if alert.issuer_id in owners and owners[alert.issuer_id] in discord_ids
+    }
+
+def _mismatch_ping_key(contract_id, discord_id):
+    return f"mismatch:{contract_id}:{discord_id}"
+
+@sync_to_async
+def _new_mismatch_recipients(recipients):
+    from ..models import DiscordMessage
+
+    existing = set(DiscordMessage.objects.filter(
+        section__startswith="mismatch:",
+    ).values_list("section", flat=True))
+    return {
+        discord_id for contract_id, discord_id in recipients.items()
+        if _mismatch_ping_key(contract_id, discord_id) not in existing
+    }
+
+@sync_to_async
+def _record_mismatch_pings(recipients, message_ids, notified_users):
+    from django.db import transaction
+    from ..models import DiscordMessage
+
+    keys = {_mismatch_ping_key(contract_id, discord_id) for contract_id, discord_id in recipients.items()}
+    with transaction.atomic():
+        DiscordMessage.objects.filter(section__startswith="mismatch:").exclude(section__in=keys).delete()
+        if message_ids:
+            DiscordMessage.objects.bulk_create([
+                DiscordMessage(
+                    section=_mismatch_ping_key(contract_id, discord_id),
+                    seq=0, message_id=message_ids[0],
+                )
+                for contract_id, discord_id in recipients.items()
+                if discord_id in notified_users
+            ], ignore_conflicts=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -279,7 +331,7 @@ class ContractsStatus(commands.Cog):
     async def _before(self):
         await self.bot.wait_until_ready()
 
-    async def _sync_section(self, channel, section, chunks, allowed, recreate=False):
+    async def _sync_section(self, channel, section, chunks, allowed, recreate=False, recipients=None):
         """Make the section's messages match ``chunks`` (edit, add, or remove)."""
         existing = await _get_section(section)
         if recreate:
@@ -289,7 +341,9 @@ class ContractsStatus(commands.Cog):
                 except discord.NotFound:
                     pass
             existing = []
+            await _set_section(section, [])
         new_ids = []
+        pending_users = {user.id for user in allowed.users} if isinstance(allowed.users, list) else None
         for i, chunk in enumerate(chunks):
             if i < len(existing):
                 try:
@@ -299,14 +353,32 @@ class ContractsStatus(commands.Cog):
                     continue
                 except discord.NotFound:
                     pass
-            msg = await channel.send(chunk, allowed_mentions=allowed)
+            message_mentions = allowed
+            if pending_users is not None:
+                users = {
+                    uid for uid in pending_users
+                    if f"<@{uid}>" in chunk or f"<@!{uid}>" in chunk
+                }
+                message_mentions = discord.AllowedMentions(
+                    everyone=False, roles=False,
+                    users=[discord.Object(id=uid) for uid in sorted(users)],
+                    replied_user=False,
+                )
+            msg = await channel.send(chunk, allowed_mentions=message_mentions)
+            if pending_users is not None:
+                pending_users.difference_update(users)
             new_ids.append(msg.id)
+            # Track partial delivery so a later send failure can be retried.
+            await _set_section(section, new_ids + existing[i + 1:])
+            if recipients is not None and pending_users is not None:
+                await _record_mismatch_pings(recipients, [msg.id], users)
         for mid in existing[len(chunks):]:
             try:
                 await (await channel.fetch_message(mid)).delete()
             except discord.NotFound:
                 pass
         await _set_section(section, new_ids)
+        return new_ids
 
     async def _refresh(self):
         cfg = await _load_config()
@@ -376,11 +448,21 @@ class ContractsStatus(commands.Cog):
         except Exception:
             logger.exception("aa-contracts: failed shortage summary")
 
-        # 3. Fit-mismatch alerts (names only, no ping).
+        # New mismatch mentions need a newly sent message to notify the owner.
         try:
-            alert_lines = await _alerts_lines()
+            alert_lines, recipients = await _alerts_lines()
+            new_recipients = await _new_mismatch_recipients(recipients)
             chunks = _pack(alert_lines) if alert_lines else ["✅ No contract fit mismatches."]
-            await self._sync_section(channel, "alerts", chunks, allowed)
+            alert_mentions = discord.AllowedMentions(
+                everyone=False, roles=False,
+                users=[discord.Object(id=uid) for uid in sorted(new_recipients)],
+                replied_user=False,
+            )
+            message_ids = await self._sync_section(
+                channel, "alerts", chunks, alert_mentions,
+                recreate=bool(new_recipients), recipients=recipients,
+            )
+            await _record_mismatch_pings(recipients, message_ids, set())
         except Exception:
             logger.exception("aa-contracts: failed alerts block")
 
