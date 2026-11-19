@@ -99,6 +99,23 @@ def _tier(available, target):
     return "🔴"
 
 
+def _pack_location(lines, limit=_MSG_LIMIT):
+    """Keep each doctrine together when it fits in a Discord message."""
+    chunks, current = [], ""
+    for block in "\n".join(lines).split("\n\n"):
+        for part in _pack(block.splitlines(), limit):
+            if current and len(current) + 2 + len(part) <= limit:
+                current += "\n\n" + part
+            else:
+                if current:
+                    chunks.append(current)
+                current = part
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+
 def _location_lines(entry, doctrine_icons=None):
     shown = [
         r
@@ -468,6 +485,25 @@ class ContractsStatus(commands.Cog):
         await _set_section(section, new_ids)
         return new_ids
 
+    async def _ensure_section_order(self, channel, sections):
+        """Move displaced blocks after location continuations without notifying anyone."""
+        last_message_id = 0
+        for section in sections:
+            ids = await _get_section(section)
+            if ids and (ids != sorted(ids) or ids[0] <= last_message_id):
+                chunks = []
+                for mid in ids:
+                    try:
+                        chunks.append((await channel.fetch_message(mid)).content)
+                    except discord.NotFound:
+                        pass
+                ids = await self._sync_section(
+                    channel, section, chunks, discord.AllowedMentions.none(), recreate=True,
+                )
+            if ids:
+                last_message_id = ids[-1]
+
+
     async def _refresh(self):
         cfg = await _load_config()
         if not cfg["enabled"] or not cfg["channel_id"]:
@@ -510,10 +546,11 @@ class ContractsStatus(commands.Cog):
         # 1. Per-location blocks.
         active = set()
         doctrine_icons = await self._doctrine_icons()
-        for key, lines in await _location_sections(doctrine_icons):
+        location_sections = await _location_sections(doctrine_icons)
+        for key, lines in location_sections:
             active.add(key)
             try:
-                await self._sync_section(channel, key, _pack(lines), allowed)
+                await self._sync_section(channel, key, _pack_location(lines), allowed)
             except Exception:
                 logger.exception("aa-contracts: failed location %s", key)
         # Remove blocks for locations that are gone/disabled.
@@ -554,6 +591,13 @@ class ContractsStatus(commands.Cog):
             await _record_mismatch_pings(recipients, message_ids, set())
         except Exception:
             logger.exception("aa-contracts: failed alerts block")
+
+        try:
+            await self._ensure_section_order(
+                channel, [key for key, _ in location_sections] + ["shortage", "alerts"],
+            )
+        except Exception:
+            logger.exception("aa-contracts: could not restore status message order")
 
 
 def setup(bot):
