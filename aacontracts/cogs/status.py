@@ -181,7 +181,7 @@ def _alerts_lines():
             a.main_name or a.issuer_name or f"char {a.issuer_id}"
         ))
         if a.contract_id in recipients:
-            who += f" <@{recipients[a.contract_id]}>"
+            who = f"<@{recipients[a.contract_id]}>"
         loc = f" @ {a.location.name}" if a.location else ""
         price = _fmt_isk_m(a.ship_fit.effective_price) if a.ship_fit else ""
         price_str = f"  ·  {price}" if price else ""
