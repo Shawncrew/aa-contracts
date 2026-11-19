@@ -397,11 +397,19 @@ class ContractsStatus(commands.Cog):
                             ) as response:
                                 response.raise_for_status()
                                 image = await response.read()
-                            if len(image) > 256 * 1024 or not image.startswith(b"\x89PNG\r\n\x1a\n"):
+                            if image.startswith(b"\x89PNG\r\n\x1a\n"):
+                                mime = "image/png"
+                            elif image.startswith(b"\xff\xd8\xff"):
+                                mime = "image/jpeg"
+                            elif image.startswith(b"RIFF") and image[8:12] == b"WEBP":
+                                mime = "image/webp"
+                            else:
+                                raise ValueError("Invalid ship emoji image")
+                            if len(image) > 256 * 1024:
                                 raise ValueError("Invalid ship emoji image")
                             emoji = await self.bot.http.request(
                                 discord.http.Route("POST", route, **params),
-                                json={"name": name, "image": "data:image/png;base64," + base64.b64encode(image).decode("ascii")},
+                                json={"name": name, "image": f"data:{mime};base64," + base64.b64encode(image).decode("ascii")},
                             )
                         self._ship_emojis[type_id] = f"<:{emoji['name']}:{emoji['id']}>"
             except Exception:
