@@ -6,14 +6,15 @@ Channel layout (top to bottom), persistent and edited each cycle:
    doctrine, each on its own line (🔴/🟢  avail/target  name). No pings.
 2. A **shortage summary** — one short ship per line, grouped by location; pings
    the configured group when a new shortage appears.
-3. A **fit-mismatch alerts** block — names and linked Discord mentions. New
-   mismatches rebuild this block and notify their owners once.
+3. A **fit-mismatch alerts** block — names and linked Discord mentions. Each
+   owner is notified at most once every 24 hours while messages keep updating.
 
 Every block is wrapped across as many Discord messages as it needs (never
 exceeding the ~2000-char message limit) and tracked in the DiscordMessage model
 so each message is edited in place. Heavy work runs in Celery
 (``tasks.update_status``); the cog renders the cached results.
 """
+from datetime import timedelta
 import logging
 
 import discord
@@ -21,6 +22,8 @@ from asgiref.sync import sync_to_async
 from discord.ext import commands, tasks
 
 from django.core.cache import cache
+from django.db.models import Q
+from django.utils import timezone
 
 from .. import app_settings
 
@@ -203,19 +206,30 @@ def _mismatch_recipients(alerts):
         if alert.issuer_id in owners and owners[alert.issuer_id] in discord_ids
     }
 
-def _mismatch_ping_key(contract_id, discord_id):
-    return f"mismatch:{contract_id}:{discord_id}"
+def _mismatch_ping_key(discord_id):
+    return f"mismatch-user:{discord_id}"
+
+def _mismatch_ping_history():
+    from ..models import DiscordMessage
+
+    history = {}
+    # Include the previous per-contract records until they have been migrated.
+    rows = DiscordMessage.objects.filter(
+        Q(section__startswith="mismatch-user:") | Q(section__startswith="mismatch:"),
+    ).values_list("section", "message_id")
+    for section, message_id in rows:
+        discord_id = int(section.rsplit(":", 1)[1])
+        history[discord_id] = max(history.get(discord_id, 0), message_id)
+    return history
+
 
 @sync_to_async
 def _new_mismatch_recipients(recipients):
-    from ..models import DiscordMessage
-
-    existing = set(DiscordMessage.objects.filter(
-        section__startswith="mismatch:",
-    ).values_list("section", flat=True))
+    cutoff = discord.utils.time_snowflake(timezone.now() - timedelta(hours=24))
+    history = _mismatch_ping_history()
     return {
-        discord_id for contract_id, discord_id in recipients.items()
-        if _mismatch_ping_key(contract_id, discord_id) not in existing
+        discord_id for discord_id in recipients.values()
+        if history.get(discord_id, 0) < cutoff
     }
 
 @sync_to_async
@@ -223,18 +237,21 @@ def _record_mismatch_pings(recipients, message_ids, notified_users):
     from django.db import transaction
     from ..models import DiscordMessage
 
-    keys = {_mismatch_ping_key(contract_id, discord_id) for contract_id, discord_id in recipients.items()}
     with transaction.atomic():
-        DiscordMessage.objects.filter(section__startswith="mismatch:").exclude(section__in=keys).delete()
+        history = _mismatch_ping_history()
         if message_ids:
-            DiscordMessage.objects.bulk_create([
-                DiscordMessage(
-                    section=_mismatch_ping_key(contract_id, discord_id),
-                    seq=0, message_id=message_ids[0],
-                )
-                for contract_id, discord_id in recipients.items()
-                if discord_id in notified_users
-            ], ignore_conflicts=True)
+            for discord_id in notified_users & set(recipients.values()):
+                history[discord_id] = max(history.get(discord_id, 0), message_ids[0])
+        for discord_id, message_id in history.items():
+            section = _mismatch_ping_key(discord_id)
+            DiscordMessage.objects.get_or_create(
+                section=section, seq=0, defaults={"message_id": message_id},
+            )
+            DiscordMessage.objects.filter(
+                section=section, seq=0, message_id__lt=message_id,
+            ).update(message_id=message_id)
+        # Keep per-person history after a mismatch resolves or is replaced.
+        DiscordMessage.objects.filter(section__startswith="mismatch:").delete()
 
 
 # --------------------------------------------------------------------------- #
@@ -448,7 +465,7 @@ class ContractsStatus(commands.Cog):
         except Exception:
             logger.exception("aa-contracts: failed shortage summary")
 
-        # New mismatch mentions need a newly sent message to notify the owner.
+        # Rebuild only when a main is due for their daily mismatch notification.
         try:
             alert_lines, recipients = await _alerts_lines()
             new_recipients = await _new_mismatch_recipients(recipients)
